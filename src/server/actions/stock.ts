@@ -1,6 +1,6 @@
 "use server";
 
-import { count, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/server/db";
 import { productCategories, products } from "@/server/db/schema";
 
@@ -63,6 +63,6 @@ export async function getEstoqueCentral(): Promise<CentralStockItem[]> {
 export async function getProductCount(): Promise<number> {
   if (!db) throw new Error("DATABASE_URL não configurada");
 
-  const [row] = await db.select({ total: count() }).from(products);
-  return row.total;
+  const rows = await db.select({ id: products.id }).from(products);
+  return rows.length;
 }

@@ -1,4 +1,4 @@
-import { Store, MapPin, User, Clock } from "lucide-react";
+import { Store } from "lucide-react";
 import { stores, products, menuItems } from "@/lib/mock-data";
 
 export default function LojasPage() {
@@ -32,24 +32,6 @@ export default function LojasPage() {
                   {store.ativo ? "Ativa" : "Inativa"}
                 </span>
               </div>
-
-              <dl className="mt-4 space-y-2 text-sm text-neutral-600">
-                <div className="flex items-center gap-2">
-                  <MapPin size={14} className="text-neutral-400" />
-                  <dt className="sr-only">Endereço</dt>
-                  <dd>Endereço não cadastrado</dd>
-                </div>
-                <div className="flex items-center gap-2">
-                  <User size={14} className="text-neutral-400" />
-                  <dt className="sr-only">Responsável</dt>
-                  <dd>Responsável não cadastrado</dd>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Clock size={14} className="text-neutral-400" />
-                  <dt className="sr-only">Horário</dt>
-                  <dd>Horário não cadastrado</dd>
-                </div>
-              </dl>
 
               <div className="mt-4 pt-4 border-t border-neutral-100 text-sm text-neutral-500">
                 {itensCardapio} {itensCardapio === 1 ? "item" : "itens"} no cardápio

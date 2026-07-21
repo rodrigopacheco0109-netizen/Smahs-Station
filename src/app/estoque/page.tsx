@@ -16,7 +16,7 @@ const tabs: { id: Tab; label: string }[] = [
 function nivelDiferenca(diferencaPercentual: number): "ok" | "atencao" | "critico" {
   const abs = Math.abs(diferencaPercentual);
   if (abs <= 5) return "ok";
-  if (abs <= 15) return "atencao";
+  if (abs <= 10) return "atencao";
   return "critico";
 }
 

@@ -1,0 +1,10 @@
+{
+  "name": "Smash Station Manager",
+  "short_name": "Smash Manager",
+  "description": "Gestão de estoque, custos, vendas e DRE para hamburguerias",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ea580c",
+  "icons": []
+}

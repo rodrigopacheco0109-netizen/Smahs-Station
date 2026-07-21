@@ -1,0 +1,86 @@
+import { db } from "./index";
+import { companies, stores, productCategories, products, stockLocations, stockMovements } from "./schema";
+import { stores as mockStores, products as mockProducts } from "../../lib/mock-data";
+
+async function main() {
+  if (!db) {
+    throw new Error("DATABASE_URL não configurada — defina no .env antes de rodar o seed.");
+  }
+
+  const [company] = await db
+    .insert(companies)
+    .values({ nome: "Smash Station" })
+    .returning();
+
+  const storeIdByMockId = new Map<string, string>();
+  for (const s of mockStores) {
+    const [row] = await db
+      .insert(stores)
+      .values({
+        companyId: company.id,
+        nome: s.nome,
+        codigoInterno: s.codigoInterno,
+        ativo: s.ativo,
+      })
+      .returning();
+    storeIdByMockId.set(s.id, row.id);
+  }
+
+  const categoriaIdByNome = new Map<string, string>();
+  const categoriasUnicas = [...new Set(mockProducts.map((p) => p.categoria))];
+  for (const nome of categoriasUnicas) {
+    const [row] = await db.insert(productCategories).values({ nome }).returning();
+    categoriaIdByNome.set(nome, row.id);
+  }
+
+  // Estoque não é uma coluna fixa no produto — o saldo é sempre derivado da
+  // soma dos stock_movements por stock_location, então o seed cria um
+  // movimento de tipo "inventario" para registrar o saldo inicial de cada
+  // produto no estoque central, em vez de uma quantidade solta na tabela.
+  const [central] = await db
+    .insert(stockLocations)
+    .values({ storeId: null, nome: "Estoque central" })
+    .returning();
+
+  for (const p of mockProducts) {
+    const [row] = await db
+      .insert(products)
+      .values({
+        nome: p.nome,
+        categoriaId: categoriaIdByNome.get(p.categoria),
+        unidadeCompra: p.unidadeCompra,
+        unidadeConsumo: p.unidadeConsumo,
+        fatorConversao: p.fatorConversao.toString(),
+        estoqueMin: p.estoqueMin.toString(),
+        custoMedio: p.custoMedio.toString(),
+        custoUltimaCompra: p.custoMedio.toString(),
+      })
+      .returning();
+
+    await db.insert(stockMovements).values({
+      productId: row.id,
+      stockLocationId: central.id,
+      tipo: "inventario",
+      quantidade: p.estoqueCentral.toString(),
+      quantidadeAnterior: "0",
+      quantidadeNova: p.estoqueCentral.toString(),
+      custoUnitario: p.custoMedio.toString(),
+      motivo: "Saldo inicial (seed)",
+    });
+  }
+
+  for (const s of mockStores) {
+    await db.insert(stockLocations).values({
+      storeId: storeIdByMockId.get(s.id),
+      nome: `Estoque — ${s.nome}`,
+    });
+  }
+
+  console.log(`Seed concluído: 1 empresa, ${mockStores.length} lojas, ${mockProducts.length} produtos.`);
+  process.exit(0);
+}
+
+main().catch((err) => {
+  console.error("Erro ao rodar o seed:", err);
+  process.exit(1);
+});

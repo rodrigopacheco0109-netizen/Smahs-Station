@@ -1,5 +1,6 @@
 import { StatCard } from "@/components/stat-card";
 import { AlertItem } from "@/components/alert-item";
+import { PrototypeNotice } from "@/components/prototype-notice";
 import { alertas, dreMensal } from "@/lib/mock-data";
 import { calcularDre, formatBRL, formatPercent, cmvPercentual } from "@/lib/calculations";
 
@@ -22,6 +23,11 @@ export default function DashboardPage() {
         <h1 className="text-xl font-semibold text-neutral-900">Visão geral</h1>
         <p className="text-sm text-neutral-500">Resumo consolidado das duas lojas — julho de 2026</p>
       </div>
+
+      <PrototypeNotice>
+        Este resumo (vendas, DRE e alertas) ainda é calculado sobre dados de exemplo — Lojas e
+        Estoque central já usam o banco real.
+      </PrototypeNotice>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Venda do mês" value={formatBRL(consolidado.receitaBruta)} hint="Club + Dom" />

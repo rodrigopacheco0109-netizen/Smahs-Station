@@ -6,6 +6,7 @@ import {
   formatBRL,
   formatPercent,
 } from "@/lib/calculations";
+import { PrototypeNotice } from "@/components/prototype-notice";
 
 export default function FichasTecnicasPage() {
   return (
@@ -14,6 +15,10 @@ export default function FichasTecnicasPage() {
         <h1 className="text-xl font-semibold text-neutral-900">Fichas técnicas</h1>
         <p className="text-sm text-neutral-500">Custo, margem e CMV calculados por produto do cardápio</p>
       </div>
+
+      <PrototypeNotice>
+        Fichas técnicas ainda não estão ligadas ao banco — os itens abaixo são dados de exemplo.
+      </PrototypeNotice>
 
       <div className="grid md:grid-cols-2 gap-4">
         {menuItems.map((item) => {

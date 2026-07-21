@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { dreMensal } from "@/lib/mock-data";
 import { calcularDre, cmvPercentual, formatBRL, formatPercent, type DreInput } from "@/lib/calculations";
+import { PrototypeNotice } from "@/components/prototype-notice";
 
 type Escopo = "consolidado" | "club" | "dom";
 
@@ -36,6 +37,10 @@ export default function DrePage() {
         <h1 className="text-xl font-semibold text-neutral-900">DRE</h1>
         <p className="text-sm text-neutral-500">Demonstrativo de resultado do mês — julho de 2026</p>
       </div>
+
+      <PrototypeNotice>
+        DRE ainda não está ligado ao banco — os valores abaixo são dados de exemplo.
+      </PrototypeNotice>
 
       <div className="flex gap-1 border-b border-neutral-200">
         {escopos.map((e) => (

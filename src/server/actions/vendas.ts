@@ -1,7 +1,7 @@
 "use server";
 
 import crypto from "node:crypto";
-import { and, eq, gte, lt } from "drizzle-orm";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { db } from "@/server/db";
 import { salesImports, salesOrders, salesOrderItems, menuItems, recipeVersions, stores } from "@/server/db/schema";
 import { parseVendas } from "@/lib/parse-vendas-xlsx";
@@ -173,19 +173,22 @@ export interface ImportacaoResumo {
   arquivoNome: string;
   storeNome: string;
   status: string;
-  createdAt: Date;
+  criadoEm: string;
 }
 
 export async function getImportacoes(): Promise<ImportacaoResumo[]> {
   if (!db) throw new Error("DATABASE_URL não configurada");
 
+  // Formata a data no próprio Postgres (to_char) em vez de deixar o driver
+  // converter timestamp -> Date no lado do Node — postgres.js e drizzle têm
+  // uma incompatibilidade conhecida nessa conversão que produz "Invalid Date".
   const rows = await db
     .select({
       id: salesImports.id,
       arquivoNome: salesImports.arquivoNome,
       storeNome: stores.nome,
       status: salesImports.status,
-      createdAt: salesImports.createdAt,
+      criadoEm: sql<string>`to_char(${salesImports.createdAt}, 'DD/MM/YYYY HH24:MI')`,
     })
     .from(salesImports)
     .innerJoin(stores, eq(stores.id, salesImports.storeId))

@@ -38,9 +38,7 @@ export default async function VendasPage() {
                     <td className="px-4 py-3 text-neutral-900">{imp.arquivoNome}</td>
                     <td className="px-4 py-3 text-neutral-500">{imp.storeNome}</td>
                     <td className="px-4 py-3 text-neutral-500">{imp.status}</td>
-                    <td className="px-4 py-3 text-neutral-500">
-                      {imp.createdAt.toLocaleString("pt-BR")}
-                    </td>
+                    <td className="px-4 py-3 text-neutral-500">{imp.criadoEm}</td>
                   </tr>
                 ))}
               </tbody>

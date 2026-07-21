@@ -4,13 +4,15 @@ import crypto from "node:crypto";
 import { and, eq, gte, lt } from "drizzle-orm";
 import { db } from "@/server/db";
 import { salesImports, salesOrders, salesOrderItems, menuItems, recipeVersions, stores } from "@/server/db/schema";
-import { parseVendasXlsx } from "@/lib/parse-vendas-xlsx";
+import { parseVendas } from "@/lib/parse-vendas-xlsx";
 
-// Nomes como aparecem no relatório do PDV (SysCashPay) mapeados para os
-// itens de cardápio já cadastrados via ficha técnica. Produtos vendidos que
-// não aparecem aqui viram itens novos automaticamente (sem ficha técnica,
-// até serem completados manualmente).
+// Nomes como aparecem nos relatórios de PDV (Smash Club — SysCashPay, e
+// Smash Dom — Crl Automação) mapeados para os itens de cardápio já
+// cadastrados via ficha técnica. Produtos vendidos que não aparecem aqui
+// viram itens novos automaticamente (sem ficha técnica, até serem
+// completados manualmente).
 const MAPEAMENTO_PRODUTOS: Record<string, string> = {
+  // Smash Club
   "CHEESE SMASH CLASSICO": "Cheese Burger",
   "CHEDDAR BACON CLASSICO": "Cheddar Bacon",
   "QUARTER CLASSICO": "Quarter",
@@ -23,6 +25,21 @@ const MAPEAMENTO_PRODUTOS: Record<string, string> = {
   "PORCAO DE NUGGETS": "Nuggets",
   "MILK SHAKE MORANGO": "Milkshake Morango",
   "MILK SHAKE OVOMALTINE": "Milkshake Ovomaltine",
+  // Smash Dom (nomes base, após remover sufixo "- modificador")
+  "CHEESE SMASH": "Cheese Burger",
+  "CHEESE SMASH DUPLO": "Cheese Burger Duplo",
+  "CHEDDAR BACON": "Cheddar Bacon",
+  "QUARTER": "Quarter",
+  "EGG STATION": "Cheese Egg",
+  "SALAD SMASH": "Cheese Salada",
+  "SALADA SMASH": "Cheese Salada",
+  "VEGETARIANO": "Vegetariano",
+  "BIG STATION": "Big Smash",
+  "SMASH TASTY": "Tasty Smash",
+  "BATATA FRITA": "Batata Palito",
+  "FRITAS": "Batata Palito",
+  "NUGGETS": "Nuggets",
+  "ALMOFADA GOUDA": "Almofada Gouda",
 };
 
 export interface ResultadoImportacao {
@@ -38,6 +55,7 @@ export async function importarVendas(formData: FormData): Promise<ResultadoImpor
 
   const file = formData.get("arquivo") as File | null;
   const storeId = formData.get("storeId") as string | null;
+  const dataReferenciaStr = formData.get("dataReferencia") as string | null;
   if (!file || !storeId) {
     throw new Error("Selecione o arquivo e a loja antes de importar.");
   }
@@ -54,7 +72,8 @@ export async function importarVendas(formData: FormData): Promise<ResultadoImpor
     return { status: "duplicado", diasImportados: 0, diasJaExistentes: 0, produtosNovosCriados: [], totalLinhas: 0 };
   }
 
-  const sessoes = await parseVendasXlsx(buffer);
+  const dataReferencia = dataReferenciaStr ? new Date(`${dataReferenciaStr}T00:00:00`) : undefined;
+  const sessoes = await parseVendas(buffer, { dataReferencia });
 
   return db.transaction(async (tx) => {
     const [importRow] = await tx

@@ -20,10 +20,11 @@ export function VendasUpload({ lojas }: { lojas: { id: string; nome: string }[] 
     <div className="rounded-xl border border-neutral-200 bg-white p-5">
       <p className="text-sm font-medium text-neutral-900 mb-1">Importar vendas (Excel)</p>
       <p className="text-xs text-neutral-500 mb-4">
-        Relatório do PDV agrupado por dia. Reenviar o mesmo arquivo não duplica — dias já
-        importados são pulados automaticamente.
+        Relatório do PDV. Reenviar o mesmo arquivo não duplica — dias já importados são pulados
+        automaticamente. Se o relatório não tiver data própria (ex: Smash Dom), informe a data de
+        referência abaixo.
       </p>
-      <form action={formAction} className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
+      <form action={formAction} className="flex flex-col sm:flex-row gap-3 items-start sm:items-end flex-wrap">
         <div className="flex flex-col gap-1">
           <label htmlFor="storeId" className="text-xs font-medium text-neutral-500">
             Loja
@@ -52,6 +53,17 @@ export function VendasUpload({ lojas }: { lojas: { id: string; nome: string }[] 
             accept=".xlsx"
             required
             className="text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-orange-50 file:px-3 file:py-1.5 file:text-orange-700"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="dataReferencia" className="text-xs font-medium text-neutral-500">
+            Data de referência (só p/ relatórios sem data)
+          </label>
+          <input
+            id="dataReferencia"
+            name="dataReferencia"
+            type="date"
+            className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
           />
         </div>
         <button

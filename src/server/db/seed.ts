@@ -1,6 +1,17 @@
 import { db } from "./index";
-import { companies, stores, productCategories, products, stockLocations, stockMovements } from "./schema";
+import {
+  companies,
+  stores,
+  productCategories,
+  products,
+  stockLocations,
+  stockMovements,
+  menuItems,
+  recipeVersions,
+  recipeIngredients,
+} from "./schema";
 import { stores as mockStores, products as mockProducts } from "../../lib/mock-data";
+import { insumos, itensCardapio } from "./ficha-tecnica-data";
 
 async function main() {
   if (!db) {
@@ -76,7 +87,62 @@ async function main() {
     });
   }
 
-  console.log(`Seed concluído: 1 empresa, ${mockStores.length} lojas, ${mockProducts.length} produtos.`);
+  // ---------- Fichas técnicas (a partir da planilha real do cliente) ----------
+
+  const insumoIdByNome = new Map<string, string>();
+  for (const insumo of insumos) {
+    const [row] = await db
+      .insert(products)
+      .values({
+        nome: insumo.nome,
+        unidadeCompra: insumo.unidadeConsumo,
+        unidadeConsumo: insumo.unidadeConsumo,
+        fatorConversao: "1",
+        custoMedio: insumo.custoMedio.toString(),
+        custoUltimaCompra: insumo.custoMedio.toString(),
+      })
+      .returning();
+    insumoIdByNome.set(insumo.nome, row.id);
+  }
+
+  for (const storeId of storeIdByMockId.values()) {
+    for (const item of itensCardapio) {
+      const [menuItem] = await db
+        .insert(menuItems)
+        .values({
+          storeId,
+          nome: item.nome,
+          categoria: item.categoria,
+          precoVenda: item.precoVenda.toString(),
+        })
+        .returning();
+
+      const [recipe] = await db
+        .insert(recipeVersions)
+        .values({
+          menuItemId: menuItem.id,
+          versao: 1,
+          custoTotalCalculado: item.custoTotalCalculado.toString(),
+        })
+        .returning();
+
+      for (const ing of item.ingredientes) {
+        const produtoId = insumoIdByNome.get(ing.produtoNome);
+        if (!produtoId) continue;
+        await db.insert(recipeIngredients).values({
+          recipeVersionId: recipe.id,
+          productId: produtoId,
+          quantidade: ing.quantidade.toString(),
+          unidade: ing.unidade,
+        });
+      }
+    }
+  }
+
+  console.log(
+    `Seed concluído: 1 empresa, ${mockStores.length} lojas, ${mockProducts.length} produtos de estoque, ` +
+      `${insumos.length} insumos, ${itensCardapio.length} itens de cardápio (x${storeIdByMockId.size} lojas).`
+  );
   process.exit(0);
 }
 

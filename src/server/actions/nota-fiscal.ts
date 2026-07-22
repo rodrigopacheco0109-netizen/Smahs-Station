@@ -69,7 +69,11 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
 
   const ItemSchema = z.object({
     descricao: z.string().describe("Nome do item/produto exatamente como está na nota (ex: Batata congelada, Nuggets, Refrigerante)"),
-    quantidade: z.number().describe("Quantidade comprada deste item, conforme a coluna de quantidade da nota"),
+    quantidade: z
+      .number()
+      .describe(
+        "Quantidade comprada deste item, exatamente como está na coluna de quantidade da nota. Para itens vendidos em caixa, é o número de CAIXAS pedidas — não multiplique por nada, apenas copie o número da nota.",
+      ),
     unidade: z.string().describe("Unidade/tipo conforme a nota, ex: UN, PC, CX, KG, L, PCT — copie como aparece"),
     valorUnitario: z.number().describe("Valor unitário do item, em reais, apenas o número"),
     valorTotal: z.number().describe("Valor total da linha (quantidade x valor unitário), em reais"),
@@ -77,13 +81,13 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
       .number()
       .nullable()
       .describe(
-        "Peso em quilos de UMA unidade/embalagem deste item, somente se a nota indicar isso explicitamente (ex: pacote de 2kg, caixa de 5kg). Null se a nota não informar peso.",
+        "Peso em quilos de UM PACOTE/UNIDADE INDIVIDUAL do produto — NÃO da caixa inteira. Ex: se a nota diz 'pacote de 2,5kg' e vêm 5 pacotes por caixa, use 2.5 (não 12.5). Somente se a nota indicar peso explicitamente; null caso contrário.",
       ),
     unidadesPorCaixa: z
       .number()
       .nullable()
       .describe(
-        "Quando a unidade for caixa (CX) e a nota indicar quantos pacotes/unidades vêm dentro de cada caixa (ex: 'CX 12X1KG', 'CX C/24UN'), coloque aqui esse número de pacotes por caixa. A quantidade acima continua sendo o número de caixas, não o total de pacotes. Null se não for vendido em caixa ou a nota não indicar essa quebra.",
+        "Quando a unidade for caixa (CX) e a nota indicar quantos pacotes/unidades individuais vêm dentro de cada caixa (ex: 'CX5' = 5 pacotes por caixa), copie esse número aqui, sem multiplicar por nada. Null se não for vendido em caixa ou a nota não indicar essa quebra.",
       ),
     categoria: z.enum(nomesCategorias).describe("Categoria mais adequada para este item dentre as opções fornecidas"),
   });
@@ -108,7 +112,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
             documentoParaAnalise,
             {
               type: "text",
-              text: "Esta é uma nota fiscal ou recibo de despesa de um restaurante (hamburgueria). Leia o documento e extraia CADA item/produto da nota separadamente (ex: batata, nuggets, refrigerante), com quantidade, unidade/tipo, valor unitário, valor total, peso por unidade (se indicado) e categoria de cada um — não junte tudo em um único item. Quando o item for vendido em caixa (CX) e a nota indicar quantos pacotes/unidades vêm em cada caixa (ex: 'CX 12X1KG', 'CX C/24UN'), informe também esse número de unidades por caixa separadamente da quantidade de caixas.",
+              text: "Esta é uma nota fiscal ou recibo de despesa de um restaurante (hamburgueria). Leia o documento e extraia CADA item/produto da nota separadamente (ex: batata, nuggets, refrigerante), com quantidade, unidade/tipo, valor unitário, valor total, peso por unidade (se indicado) e categoria de cada um — não junte tudo em um único item.\n\nAtenção especial a itens vendidos em caixa (CX): extraia os três números separadamente, sem multiplicar nada você mesmo — deixe o cálculo final para o sistema. Exemplo: uma nota de batata congelada onde cada pacote tem 2,5kg, cada caixa vem com 5 pacotes (indicado como 'CX5') e foram pedidas 3 caixas, deve ser lido como: quantidade=3, unidadesPorCaixa=5, pesoKgUnitario=2.5 (o peso do pacote, não da caixa).",
             },
           ],
         },

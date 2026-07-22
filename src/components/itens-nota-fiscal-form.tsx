@@ -64,9 +64,10 @@ export function ItensNotaFiscalForm({
     const valorUnitario = paraNumero(linha.valorUnitario);
     const valorTotal = quantidade * valorUnitario;
     const pesoKgUnitario = linha.pesoKgUnitario === "" ? null : paraNumero(linha.pesoKgUnitario);
-    const pesoTotalKg = pesoKgUnitario !== null ? pesoKgUnitario * quantidade : null;
     const unidadesPorCaixa = linha.unidadesPorCaixa === "" ? null : paraNumero(linha.unidadesPorCaixa);
     const totalPacotes = unidadesPorCaixa !== null ? unidadesPorCaixa * quantidade : null;
+    // peso do pacote x pacotes por caixa x caixas pedidas (ou só x quantidade, se não vendido em caixa)
+    const pesoTotalKg = pesoKgUnitario !== null ? pesoKgUnitario * (totalPacotes ?? quantidade) : null;
     return { ...linha, quantidade, valorUnitario, valorTotal, pesoKgUnitario, pesoTotalKg, unidadesPorCaixa, totalPacotes };
   });
 

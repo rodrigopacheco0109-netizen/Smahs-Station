@@ -7,7 +7,11 @@ import { getCategoriasDespesa } from "./despesas";
 
 export interface ItemNotaFiscal {
   descricao: string;
-  valor: number;
+  quantidade: number;
+  unidade: string;
+  valorUnitario: number;
+  valorTotal: number;
+  pesoKgUnitario: number | null;
   categoriaId: string;
   categoriaNome: string;
 }
@@ -64,7 +68,16 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
 
   const ItemSchema = z.object({
     descricao: z.string().describe("Nome do item/produto exatamente como está na nota (ex: Batata congelada, Nuggets, Refrigerante)"),
-    valor: z.number().describe("Valor deste item específico, em reais, apenas o número"),
+    quantidade: z.number().describe("Quantidade comprada deste item, conforme a coluna de quantidade da nota"),
+    unidade: z.string().describe("Unidade/tipo conforme a nota, ex: UN, PC, CX, KG, L, PCT — copie como aparece"),
+    valorUnitario: z.number().describe("Valor unitário do item, em reais, apenas o número"),
+    valorTotal: z.number().describe("Valor total da linha (quantidade x valor unitário), em reais"),
+    pesoKgUnitario: z
+      .number()
+      .nullable()
+      .describe(
+        "Peso em quilos de UMA unidade/embalagem deste item, somente se a nota indicar isso explicitamente (ex: pacote de 2kg, caixa de 5kg). Null se a nota não informar peso.",
+      ),
     categoria: z.enum(nomesCategorias).describe("Categoria mais adequada para este item dentre as opções fornecidas"),
   });
 
@@ -88,7 +101,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
             documentoParaAnalise,
             {
               type: "text",
-              text: "Esta é uma nota fiscal ou recibo de despesa de um restaurante (hamburgueria). Leia o documento e extraia CADA item/produto da nota separadamente (ex: batata, nuggets, refrigerante), com o valor e a categoria de cada um — não junte tudo em um único item.",
+              text: "Esta é uma nota fiscal ou recibo de despesa de um restaurante (hamburgueria). Leia o documento e extraia CADA item/produto da nota separadamente (ex: batata, nuggets, refrigerante), com quantidade, unidade/tipo, valor unitário, valor total, peso por unidade (se indicado) e categoria de cada um — não junte tudo em um único item.",
             },
           ],
         },
@@ -111,7 +124,11 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
     const categoriaEncontrada = categorias.find((c) => c.nome === item.categoria)!;
     return {
       descricao: item.descricao,
-      valor: item.valor,
+      quantidade: item.quantidade,
+      unidade: item.unidade,
+      valorUnitario: item.valorUnitario,
+      valorTotal: item.valorTotal,
+      pesoKgUnitario: item.pesoKgUnitario,
       categoriaId: categoriaEncontrada.id,
       categoriaNome: categoriaEncontrada.nome,
     };

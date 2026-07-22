@@ -7,8 +7,20 @@ import type { DadosExtraidosNotaFiscal } from "@/server/actions/nota-fiscal";
 interface LinhaItem {
   descricao: string;
   categoriaId: string;
-  valor: string;
+  quantidade: string;
+  unidade: string;
+  valorUnitario: string;
+  pesoKgUnitario: string;
   incluir: boolean;
+}
+
+function paraNumero(valor: string): number {
+  const n = Number(valor.replace(",", "."));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function formatarNumero(n: number): string {
+  return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 3 });
 }
 
 export function ItensNotaFiscalForm({
@@ -26,7 +38,10 @@ export function ItensNotaFiscalForm({
     dados.itens.map((item) => ({
       descricao: item.descricao,
       categoriaId: item.categoriaId,
-      valor: item.valor.toFixed(2),
+      quantidade: item.quantidade.toString(),
+      unidade: item.unidade,
+      valorUnitario: item.valorUnitario.toFixed(2),
+      pesoKgUnitario: item.pesoKgUnitario !== null ? item.pesoKgUnitario.toString() : "",
       incluir: true,
     })),
   );
@@ -42,14 +57,21 @@ export function ItensNotaFiscalForm({
     setLinhas((atual) => atual.map((linha, i) => (i === indice ? { ...linha, [campo]: valor } : linha)));
   }
 
-  const quantidadeSelecionada = linhas.filter((l) => l.incluir).length;
-  const totalSelecionado = linhas
-    .filter((l) => l.incluir)
-    .reduce((soma, l) => soma + (Number(l.valor.replace(",", ".")) || 0), 0);
+  const linhasCalculadas = linhas.map((linha) => {
+    const quantidade = paraNumero(linha.quantidade);
+    const valorUnitario = paraNumero(linha.valorUnitario);
+    const valorTotal = quantidade * valorUnitario;
+    const pesoKgUnitario = linha.pesoKgUnitario === "" ? null : paraNumero(linha.pesoKgUnitario);
+    const pesoTotalKg = pesoKgUnitario !== null ? pesoKgUnitario * quantidade : null;
+    return { ...linha, quantidade, valorUnitario, valorTotal, pesoKgUnitario, pesoTotalKg };
+  });
+
+  const selecionadas = linhasCalculadas.filter((l) => l.incluir);
+  const totalValorSelecionado = selecionadas.reduce((soma, l) => soma + l.valorTotal, 0);
+  const totalKgSelecionado = selecionadas.reduce((soma, l) => soma + (l.pesoTotalKg ?? 0), 0);
 
   function salvar() {
     setErro(null);
-    const selecionadas = linhas.filter((l) => l.incluir);
     if (selecionadas.length === 0) {
       setErro("Selecione ao menos um item.");
       return;
@@ -61,9 +83,9 @@ export function ItensNotaFiscalForm({
     startTransition(async () => {
       const resultado = await criarDespesasEmLote(
         selecionadas.map((l) => ({
-          descricao: l.descricao,
+          descricao: `${l.descricao} — ${formatarNumero(l.quantidade)} ${l.unidade} x R$ ${l.valorUnitario.toFixed(2).replace(".", ",")}`,
           categoriaId: l.categoriaId,
-          valor: Number(l.valor.replace(",", ".")),
+          valor: l.valorTotal,
         })),
         {
           competencia,
@@ -103,11 +125,16 @@ export function ItensNotaFiscalForm({
               <th className="py-2 pr-2 font-medium" />
               <th className="py-2 pr-2 font-medium">Descrição</th>
               <th className="py-2 pr-2 font-medium">Categoria</th>
-              <th className="py-2 pr-2 font-medium text-right">Valor (R$)</th>
+              <th className="py-2 pr-2 font-medium">Tipo</th>
+              <th className="py-2 pr-2 font-medium text-right">Qtd</th>
+              <th className="py-2 pr-2 font-medium text-right">V. unit. (R$)</th>
+              <th className="py-2 pr-2 font-medium text-right">V. total (R$)</th>
+              <th className="py-2 pr-2 font-medium text-right">Kg unit.</th>
+              <th className="py-2 pr-2 font-medium text-right">Kg total</th>
             </tr>
           </thead>
           <tbody>
-            {linhas.map((linha, i) => (
+            {linhasCalculadas.map((linha, i) => (
               <tr key={i} className="border-b border-neutral-50 last:border-0">
                 <td className="py-2 pr-2">
                   <input
@@ -121,7 +148,7 @@ export function ItensNotaFiscalForm({
                     type="text"
                     value={linha.descricao}
                     onChange={(e) => atualizarLinha(i, "descricao", e.target.value)}
-                    className="w-full rounded-lg border border-neutral-200 px-2 py-1.5 text-sm"
+                    className="w-40 rounded-lg border border-neutral-200 px-2 py-1.5 text-sm"
                   />
                 </td>
                 <td className="py-2 pr-2">
@@ -139,12 +166,43 @@ export function ItensNotaFiscalForm({
                 </td>
                 <td className="py-2 pr-2">
                   <input
+                    type="text"
+                    value={linha.unidade}
+                    onChange={(e) => atualizarLinha(i, "unidade", e.target.value)}
+                    className="w-16 rounded-lg border border-neutral-200 px-2 py-1.5 text-sm"
+                  />
+                </td>
+                <td className="py-2 pr-2">
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={linhas[i].quantidade}
+                    onChange={(e) => atualizarLinha(i, "quantidade", e.target.value)}
+                    className="w-20 rounded-lg border border-neutral-200 px-2 py-1.5 text-right text-sm"
+                  />
+                </td>
+                <td className="py-2 pr-2">
+                  <input
                     type="number"
                     step="0.01"
-                    value={linha.valor}
-                    onChange={(e) => atualizarLinha(i, "valor", e.target.value)}
-                    className="w-28 rounded-lg border border-neutral-200 px-2 py-1.5 text-right text-sm"
+                    value={linhas[i].valorUnitario}
+                    onChange={(e) => atualizarLinha(i, "valorUnitario", e.target.value)}
+                    className="w-24 rounded-lg border border-neutral-200 px-2 py-1.5 text-right text-sm"
                   />
+                </td>
+                <td className="py-2 pr-2 text-right text-neutral-900">{formatarNumero(linha.valorTotal)}</td>
+                <td className="py-2 pr-2">
+                  <input
+                    type="number"
+                    step="0.001"
+                    placeholder="—"
+                    value={linhas[i].pesoKgUnitario}
+                    onChange={(e) => atualizarLinha(i, "pesoKgUnitario", e.target.value)}
+                    className="w-20 rounded-lg border border-neutral-200 px-2 py-1.5 text-right text-sm"
+                  />
+                </td>
+                <td className="py-2 pr-2 text-right text-neutral-500">
+                  {linha.pesoTotalKg !== null ? formatarNumero(linha.pesoTotalKg) : "—"}
                 </td>
               </tr>
             ))}
@@ -154,7 +212,9 @@ export function ItensNotaFiscalForm({
 
       <p className="mt-2 text-right text-xs text-neutral-500">
         Total selecionado:{" "}
-        <span className="font-medium text-neutral-900">R$ {totalSelecionado.toFixed(2).replace(".", ",")}</span>
+        <span className="font-medium text-neutral-900">R$ {formatarNumero(totalValorSelecionado)}</span>
+        {" · "}
+        <span className="font-medium text-neutral-900">{formatarNumero(totalKgSelecionado)} kg</span>
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -215,10 +275,10 @@ export function ItensNotaFiscalForm({
           <button
             type="button"
             onClick={salvar}
-            disabled={isPending || quantidadeSelecionada === 0}
+            disabled={isPending || selecionadas.length === 0}
             className="w-full rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
-            {isPending ? "Salvando…" : `Lançar ${quantidadeSelecionada} despesa${quantidadeSelecionada === 1 ? "" : "s"}`}
+            {isPending ? "Salvando…" : `Lançar ${selecionadas.length} despesa${selecionadas.length === 1 ? "" : "s"}`}
           </button>
         </div>
       </div>

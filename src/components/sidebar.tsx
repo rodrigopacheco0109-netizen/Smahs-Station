@@ -8,6 +8,7 @@ import {
   Boxes,
   ClipboardList,
   ShoppingCart,
+  Wallet,
   Receipt,
   FileBarChart,
   Bell,
@@ -19,6 +20,7 @@ const links = [
   { href: "/estoque", label: "Estoque", icon: Boxes },
   { href: "/fichas-tecnicas", label: "Fichas técnicas", icon: ClipboardList },
   { href: "/vendas", label: "Vendas", icon: ShoppingCart },
+  { href: "/despesas", label: "Despesas", icon: Wallet },
   { href: "/dre", label: "DRE", icon: Receipt },
   { href: "/relatorios", label: "Relatórios", icon: FileBarChart },
 ];

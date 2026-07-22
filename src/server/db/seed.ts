@@ -9,6 +9,7 @@ import {
   menuItems,
   recipeVersions,
   recipeIngredients,
+  expenseCategories,
 } from "./schema";
 import { stores as mockStores, products as mockProducts } from "../../lib/mock-data";
 import { insumos, itensCardapio } from "./ficha-tecnica-data";
@@ -139,9 +140,27 @@ async function main() {
     }
   }
 
+  // ---------- Despesas: categorias padrão ----------
+
+  const categoriasDespesa: { nome: string; tipoDre: string }[] = [
+    { nome: "Aluguel", tipoDre: "despesa_operacional" },
+    { nome: "Energia", tipoDre: "despesa_operacional" },
+    { nome: "Água", tipoDre: "despesa_operacional" },
+    { nome: "Internet/Telefone", tipoDre: "despesa_operacional" },
+    { nome: "Salários", tipoDre: "despesa_operacional" },
+    { nome: "Marketing", tipoDre: "despesa_operacional" },
+    { nome: "Manutenção", tipoDre: "despesa_operacional" },
+    { nome: "Contador/Sistema", tipoDre: "despesa_operacional" },
+    { nome: "Impostos", tipoDre: "despesa_operacional" },
+    { nome: "Taxas Bancárias/Juros", tipoDre: "despesa_financeira" },
+    { nome: "Outras", tipoDre: "despesa_operacional" },
+  ];
+  await db.insert(expenseCategories).values(categoriasDespesa);
+
   console.log(
     `Seed concluído: 1 empresa, ${mockStores.length} lojas, ${mockProducts.length} produtos de estoque, ` +
-      `${insumos.length} insumos, ${itensCardapio.length} itens de cardápio (x${storeIdByMockId.size} lojas).`
+      `${insumos.length} insumos, ${itensCardapio.length} itens de cardápio (x${storeIdByMockId.size} lojas), ` +
+      `${categoriasDespesa.length} categorias de despesa.`
   );
   process.exit(0);
 }

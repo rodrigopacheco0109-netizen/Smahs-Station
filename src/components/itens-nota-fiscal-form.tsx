@@ -10,7 +10,8 @@ interface LinhaItem {
   quantidade: string;
   unidade: string;
   valorUnitario: string;
-  pesoKgUnitario: string;
+  medidaValor: string;
+  medidaTipo: "kg" | "l" | "";
   unidadesPorCaixa: string;
   incluir: boolean;
 }
@@ -42,7 +43,8 @@ export function ItensNotaFiscalForm({
       quantidade: item.quantidade.toString(),
       unidade: item.unidade,
       valorUnitario: item.valorUnitario.toFixed(2),
-      pesoKgUnitario: item.pesoKgUnitario !== null ? item.pesoKgUnitario.toString() : "",
+      medidaValor: item.medidaValorUnitario !== null ? item.medidaValorUnitario.toString() : "",
+      medidaTipo: item.medidaUnidade ?? "",
       unidadesPorCaixa: item.unidadesPorCaixa !== null ? item.unidadesPorCaixa.toString() : "",
       incluir: true,
     })),
@@ -60,17 +62,22 @@ export function ItensNotaFiscalForm({
     const quantidade = paraNumero(linha.quantidade);
     const valorUnitario = paraNumero(linha.valorUnitario);
     const valorTotal = quantidade * valorUnitario;
-    const pesoKgUnitario = linha.pesoKgUnitario === "" ? null : paraNumero(linha.pesoKgUnitario);
+    const medidaValor = linha.medidaValor === "" ? null : paraNumero(linha.medidaValor);
     const unidadesPorCaixa = linha.unidadesPorCaixa === "" ? null : paraNumero(linha.unidadesPorCaixa);
     const totalPacotes = unidadesPorCaixa !== null ? unidadesPorCaixa * quantidade : null;
-    // peso do pacote x pacotes por caixa x caixas pedidas (ou só x quantidade, se não vendido em caixa)
-    const pesoTotalKg = pesoKgUnitario !== null ? pesoKgUnitario * (totalPacotes ?? quantidade) : null;
-    return { ...linha, quantidade, valorUnitario, valorTotal, pesoKgUnitario, pesoTotalKg, unidadesPorCaixa, totalPacotes };
+    // medida unitária x pacotes por caixa x caixas pedidas (ou só x quantidade, se não vendido em caixa)
+    const medidaTotal = medidaValor !== null ? medidaValor * (totalPacotes ?? quantidade) : null;
+    return { ...linha, quantidade, valorUnitario, valorTotal, medidaValor, medidaTotal, unidadesPorCaixa, totalPacotes };
   });
 
   const selecionadas = linhasCalculadas.filter((l) => l.incluir);
   const totalValorSelecionado = selecionadas.reduce((soma, l) => soma + l.valorTotal, 0);
-  const totalKgSelecionado = selecionadas.reduce((soma, l) => soma + (l.pesoTotalKg ?? 0), 0);
+  const totalKgSelecionado = selecionadas
+    .filter((l) => l.medidaTipo === "kg")
+    .reduce((soma, l) => soma + (l.medidaTotal ?? 0), 0);
+  const totalLSelecionado = selecionadas
+    .filter((l) => l.medidaTipo === "l")
+    .reduce((soma, l) => soma + (l.medidaTotal ?? 0), 0);
 
   function salvar() {
     setErro(null);
@@ -144,8 +151,8 @@ export function ItensNotaFiscalForm({
               <th className="py-2 pr-2 font-medium text-right">Total un.</th>
               <th className="py-2 pr-2 font-medium text-right">V. unit. (R$)</th>
               <th className="py-2 pr-2 font-medium text-right">V. total (R$)</th>
-              <th className="py-2 pr-2 font-medium text-right">Kg unit.</th>
-              <th className="py-2 pr-2 font-medium text-right">Kg total</th>
+              <th className="py-2 pr-2 font-medium text-right">Peso/vol. unit.</th>
+              <th className="py-2 pr-2 font-medium text-right">Total (kg/L)</th>
             </tr>
           </thead>
           <tbody>
@@ -220,17 +227,28 @@ export function ItensNotaFiscalForm({
                 </td>
                 <td className="py-2 pr-2 text-right text-neutral-900">{formatarNumero(linha.valorTotal)}</td>
                 <td className="py-2 pr-2">
-                  <input
-                    type="number"
-                    step="0.001"
-                    placeholder="—"
-                    value={linhas[i].pesoKgUnitario}
-                    onChange={(e) => atualizarLinha(i, "pesoKgUnitario", e.target.value)}
-                    className="w-20 rounded-lg border border-neutral-200 px-2 py-1.5 text-right text-sm"
-                  />
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      step="0.001"
+                      placeholder="—"
+                      value={linhas[i].medidaValor}
+                      onChange={(e) => atualizarLinha(i, "medidaValor", e.target.value)}
+                      className="w-16 rounded-lg border border-neutral-200 px-2 py-1.5 text-right text-sm"
+                    />
+                    <select
+                      value={linhas[i].medidaTipo}
+                      onChange={(e) => atualizarLinha(i, "medidaTipo", e.target.value)}
+                      className="rounded-lg border border-neutral-200 px-1 py-1.5 text-xs"
+                    >
+                      <option value="">—</option>
+                      <option value="kg">kg</option>
+                      <option value="l">L</option>
+                    </select>
+                  </div>
                 </td>
                 <td className="py-2 pr-2 text-right text-neutral-500">
-                  {linha.pesoTotalKg !== null ? formatarNumero(linha.pesoTotalKg) : "—"}
+                  {linha.medidaTotal !== null ? `${formatarNumero(linha.medidaTotal)} ${linha.medidaTipo}` : "—"}
                 </td>
               </tr>
             ))}
@@ -239,10 +257,19 @@ export function ItensNotaFiscalForm({
       </div>
 
       <p className="mt-2 text-right text-xs text-neutral-500">
-        Total selecionado:{" "}
-        <span className="font-medium text-neutral-900">R$ {formatarNumero(totalValorSelecionado)}</span>
-        {" · "}
-        <span className="font-medium text-neutral-900">{formatarNumero(totalKgSelecionado)} kg</span>
+        Total selecionado: <span className="font-medium text-neutral-900">R$ {formatarNumero(totalValorSelecionado)}</span>
+        {totalKgSelecionado > 0 && (
+          <>
+            {" · "}
+            <span className="font-medium text-neutral-900">{formatarNumero(totalKgSelecionado)} kg</span>
+          </>
+        )}
+        {totalLSelecionado > 0 && (
+          <>
+            {" · "}
+            <span className="font-medium text-neutral-900">{formatarNumero(totalLSelecionado)} L</span>
+          </>
+        )}
       </p>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

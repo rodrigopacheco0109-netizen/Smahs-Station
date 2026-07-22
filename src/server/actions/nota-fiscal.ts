@@ -11,7 +11,8 @@ export interface ItemNotaFiscal {
   unidade: string;
   valorUnitario: number;
   valorTotal: number;
-  pesoKgUnitario: number | null;
+  medidaValorUnitario: number | null;
+  medidaUnidade: "kg" | "l" | null;
   unidadesPorCaixa: number | null;
   categoriaId: string;
   categoriaNome: string;
@@ -27,37 +28,43 @@ export interface DadosExtraidosNotaFiscal {
 
 // Códigos de unidade trazem o multiplicador (quantas unidades elementares por
 // caixa/pacote) embutido no próprio código — às vezes com número (CX5, PC1,
-// UN1, KG1), às vezes sem (UN, PC, KG sozinhos, que significam "1"). É texto
-// literal da nota, então extrair por regex é bem mais confiável do que pedir
-// para o modelo "copiar" esse número à parte (ele já confundiu com a
-// quantidade pedida em testes reais). Quando o prefixo é KG, a própria
-// quantidade já É o peso total em kg — não há pacote/caixa nem peso unitário
-// para multiplicar. "CX" sozinho (sem número) é ambíguo demais — fica null e
-// tenta a descrição como fallback.
-const CODIGOS_UNIDADE_UNICA = ["UN", "PC", "PCT", "BD", "KG"];
+// UN1, KG1), às vezes sem (UN, PC, KG, L sozinhos, que significam "1"). É
+// texto literal da nota, então extrair por regex é bem mais confiável do que
+// pedir para o modelo "copiar" esse número à parte (ele já confundiu com a
+// quantidade pedida em testes reais). Quando o prefixo é KG ou L, a própria
+// quantidade já É o peso/volume total — não há pacote/caixa para multiplicar.
+// "CX" sozinho (sem número) é ambíguo demais — fica null e tenta a
+// descrição como fallback.
+const CODIGOS_UNIDADE_UNICA = ["UN", "PC", "PCT", "BD", "KG", "L"];
 
-function interpretarCodigoUnidade(unidade: string): { multiplicador: number | null; ehQuilo: boolean } {
+function interpretarCodigoUnidade(unidade: string): { multiplicador: number | null; medidaBase: "kg" | "l" | null } {
   const limpo = unidade.trim().toUpperCase().replace(/[^A-ZÀ-ÿ0-9]/g, "");
   const comDigito = limpo.match(/^([A-ZÀ-ÿ]+)(\d+)$/);
   if (comDigito) {
     const [, prefixo, numero] = comDigito;
-    return { multiplicador: Number(numero), ehQuilo: prefixo === "KG" };
+    const medidaBase = prefixo === "KG" ? "kg" : prefixo === "L" ? "l" : null;
+    return { multiplicador: Number(numero), medidaBase };
   }
   if (CODIGOS_UNIDADE_UNICA.includes(limpo)) {
-    return { multiplicador: 1, ehQuilo: limpo === "KG" };
+    const medidaBase = limpo === "KG" ? "kg" : limpo === "L" ? "l" : null;
+    return { multiplicador: 1, medidaBase };
   }
-  return { multiplicador: null, ehQuilo: false };
+  return { multiplicador: null, medidaBase: null };
 }
 
-// Muitas descrições já trazem o peso por extenso (ex: "5X2,5KG" = 5 pacotes
-// de 2,5kg cada; "BANHA ANIMAL AURORA 1KG" = 1kg). Prioriza esse texto sobre
-// o campo livre pesoKgUnitario da IA, por ser um trecho maior e mais fácil de
-// ler certo do que a coluna estreita de unidade/quantidade.
-function extrairPesoDaDescricao(descricao: string): number | null {
-  const comMultiplicador = descricao.match(/\d+\s*[xX]\s*(\d+(?:[,.]\d+)?)\s*KG\b/i);
-  if (comMultiplicador) return Number(comMultiplicador[1].replace(",", "."));
-  const somentePeso = descricao.match(/(\d+(?:[,.]\d+)?)\s*KG\b/i);
-  if (somentePeso) return Number(somentePeso[1].replace(",", "."));
+// Muitas descrições já trazem o peso/volume por extenso (ex: "5X2,5KG" = 5
+// pacotes de 2,5kg cada; "10L CX BASE..." = 10 litros). Prioriza esse texto
+// sobre o campo livre da IA, por ser um trecho maior e mais fácil de ler
+// certo do que a coluna estreita de unidade/quantidade.
+function extrairMedidaDaDescricao(descricao: string): { valor: number; unidade: "kg" | "l" } | null {
+  const comMultiplicadorKg = descricao.match(/\d+\s*[xX]\s*(\d+(?:[,.]\d+)?)\s*KG\b/i);
+  if (comMultiplicadorKg) return { valor: Number(comMultiplicadorKg[1].replace(",", ".")), unidade: "kg" };
+  const somenteKg = descricao.match(/(\d+(?:[,.]\d+)?)\s*KG\b/i);
+  if (somenteKg) return { valor: Number(somenteKg[1].replace(",", ".")), unidade: "kg" };
+  const comMultiplicadorL = descricao.match(/\d+\s*[xX]\s*(\d+(?:[,.]\d+)?)\s*L\b/i);
+  if (comMultiplicadorL) return { valor: Number(comMultiplicadorL[1].replace(",", ".")), unidade: "l" };
+  const somenteL = descricao.match(/(\d+(?:[,.]\d+)?)\s*L\b/i);
+  if (somenteL) return { valor: Number(somenteL[1].replace(",", ".")), unidade: "l" };
   return null;
 }
 
@@ -127,12 +134,16 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
       ),
     valorUnitario: z.number().describe("Valor unitário do item, em reais, apenas o número"),
     valorTotal: z.number().describe("Valor total da linha (quantidade x valor unitário), em reais"),
-    pesoKgUnitario: z
+    medidaValorUnitario: z
       .number()
       .nullable()
       .describe(
-        "Peso em quilos de UMA unidade/pacote individual do produto, se identificável na descrição (ex: descrição '...5X2,5KG' ou '...1KG' → 2.5 ou 1). NÃO multiplique pelo tamanho da caixa. Null se a descrição não indicar peso.",
+        "Peso (kg) ou volume (L) de UMA unidade/pacote individual do produto, se identificável na descrição (ex: '...5X2,5KG' → 2.5; '10L CX...' → 10). NÃO multiplique pelo tamanho da caixa. Null se a descrição não indicar peso/volume.",
       ),
+    medidaUnidade: z
+      .enum(["kg", "l"])
+      .nullable()
+      .describe("'kg' se medidaValorUnitario for peso, 'l' se for volume em litros. Null se medidaValorUnitario for null."),
     unidadesPorCaixa: z
       .number()
       .nullable()
@@ -160,7 +171,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
   let resposta;
   try {
     resposta = await client.messages.parse({
-      model: "claude-haiku-4-5",
+      model: "claude-sonnet-5",
       max_tokens: 8192,
       messages: [
         {
@@ -169,7 +180,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
             documentoParaAnalise,
             {
               type: "text",
-              text: "Esta é uma nota fiscal (DANFE) de um restaurante (hamburgueria). Extraia também o número da nota fiscal (numeroNota) e o valor total da nota (valorTotalNota — campo 'VALOR TOTAL DA NOTA' ou 'VALOR TOTAL DOS PRODUTOS'), se houver.\n\nNa tabela 'DADOS DO PRODUTO/SERVIÇOS', leia CADA linha/item, uma por uma, do topo até o final da tabela — é muito importante não pular nenhuma linha, incluindo a primeira e a última. Extraia com cuidado célula por célula — as colunas NCM/SH, CST, CFOP, UNID e QUANTIDADE ficam bem próximas umas das outras, não confunda os valores entre elas.\n\nA coluna UNID traz um código, com ou sem número no final (ex: 'PC1', 'UN1', 'BD1', 'CX5', 'CX2', 'CX6', 'KG1', ou às vezes só 'UN', 'CX', 'KG' sem número) — copie esse código EXATAMENTE como está impresso, caractere por caractere, no campo unidade. Não interprete nem separe o número — apenas copie o texto da célula.\n\nA coluna QUANTIDADE é um número separado (ex: '3,0000', '6,3780') — os números na nota usam vírgula como separador decimal (formato brasileiro); converta para ponto decimal nos campos numéricos (ex: '6,3780' vira 6.378).\n\nO peso do item, quando existir, normalmente já aparece por extenso na própria descrição do produto (ex: 'BATATA ... 5X2,5KG' ou 'BANHA ANIMAL AURORA 1KG') — extraia esse peso em pesoKgUnitario quando conseguir identificá-lo na descrição. Se a descrição indicar quantas unidades vêm por caixa (ex: 'CX 48 UNID'), você pode preencher unidadesPorCaixa também, mas isso é só um palpite de reserva — o sistema já calcula esse número por conta própria.",
+              text: "Esta é uma nota fiscal (DANFE) de um restaurante (hamburgueria). Extraia também o número da nota fiscal (numeroNota) e o valor total da nota (valorTotalNota — campo 'VALOR TOTAL DA NOTA' ou 'VALOR TOTAL DOS PRODUTOS'), se houver.\n\nNa tabela 'DADOS DO PRODUTO/SERVIÇOS', leia CADA linha/item, uma por uma, do topo até o final da tabela — é muito importante não pular nenhuma linha, incluindo a primeira e a última. Extraia com cuidado célula por célula — as colunas NCM/SH, CST, CFOP, UNID e QUANTIDADE ficam bem próximas umas das outras, não confunda os valores entre elas.\n\nA coluna UNID traz um código, com ou sem número no final (ex: 'PC1', 'UN1', 'BD1', 'CX5', 'CX2', 'CX6', 'KG1', ou às vezes só 'UN', 'CX', 'KG', 'L' sem número) — copie esse código EXATAMENTE como está impresso, caractere por caractere, no campo unidade. Não interprete nem separe o número — apenas copie o texto da célula.\n\nA coluna QUANTIDADE é um número separado (ex: '3,0000', '6,3780') — os números na nota usam vírgula como separador decimal (formato brasileiro); converta para ponto decimal nos campos numéricos (ex: '6,3780' vira 6.378).\n\nO peso ou volume do item, quando existir, normalmente já aparece por extenso na própria descrição do produto (ex: 'BATATA ... 5X2,5KG' → 2.5 kg; 'BANHA ANIMAL AURORA 1KG' → 1 kg; '10L CX BASE...' → 10 L) — extraia esse valor em medidaValorUnitario e o tipo (kg ou l) em medidaUnidade quando conseguir identificar na descrição. Se a descrição indicar quantas unidades vêm por caixa (ex: 'CX 48 UNID'), você pode preencher unidadesPorCaixa também, mas isso é só um palpite de reserva — o sistema já calcula esse número por conta própria.",
             },
           ],
         },
@@ -190,17 +201,17 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
 
   const itens: ItemNotaFiscal[] = dados.itens.map((item) => {
     const categoriaEncontrada = categorias.find((c) => c.nome === item.categoria)!;
-    const { multiplicador, ehQuilo } = interpretarCodigoUnidade(item.unidade);
-    const pesoDaDescricao = extrairPesoDaDescricao(item.descricao);
-    const multiplicadorDaDescricao = extrairMultiplicadorDaDescricao(item.descricao);
+    const { multiplicador, medidaBase } = interpretarCodigoUnidade(item.unidade);
+    const medidaDaDescricao = extrairMedidaDaDescricao(item.descricao);
     return {
       descricao: item.descricao,
       quantidade: item.quantidade,
       unidade: item.unidade,
       valorUnitario: item.valorUnitario,
       valorTotal: item.valorTotal,
-      pesoKgUnitario: ehQuilo ? 1 : (pesoDaDescricao ?? item.pesoKgUnitario),
-      unidadesPorCaixa: ehQuilo ? 1 : (multiplicador ?? multiplicadorDaDescricao ?? item.unidadesPorCaixa),
+      medidaValorUnitario: medidaBase ? 1 : (medidaDaDescricao?.valor ?? item.medidaValorUnitario),
+      medidaUnidade: medidaBase ?? medidaDaDescricao?.unidade ?? item.medidaUnidade,
+      unidadesPorCaixa: medidaBase ? 1 : (multiplicador ?? extrairMultiplicadorDaDescricao(item.descricao) ?? item.unidadesPorCaixa),
       categoriaId: categoriaEncontrada.id,
       categoriaNome: categoriaEncontrada.nome,
     };

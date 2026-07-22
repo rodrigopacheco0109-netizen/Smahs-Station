@@ -1,7 +1,7 @@
 "use server";
 
 import crypto from "node:crypto";
-import { and, eq, gte, lt, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { db } from "@/server/db";
 import { salesImports, salesOrders, salesOrderItems, menuItems, recipeVersions, stores } from "@/server/db/schema";
 import { parseVendas } from "@/lib/parse-vendas-xlsx";
@@ -75,96 +75,126 @@ export async function importarVendas(formData: FormData): Promise<ResultadoImpor
   const dataReferencia = dataReferenciaStr ? new Date(`${dataReferenciaStr}T00:00:00`) : undefined;
   const sessoes = await parseVendas(buffer, { dataReferencia });
 
+  // Tudo abaixo roda em lote (poucas idas ao banco, independente do tamanho
+  // do arquivo) — a versão anterior fazia uma consulta por produto por dia,
+  // o que passava fácil de centenas de idas ao banco e arriscava estourar o
+  // tempo limite de uma função serverless (a causa mais provável da
+  // importação "sumir" — a transação nunca chegava a commitar).
   return db.transaction(async (tx) => {
+    const diasDasSessoes = sessoes.map((s) => {
+      const d = new Date(s.data);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    });
+    const menorDia = new Date(Math.min(...diasDasSessoes.map((d) => d.getTime())));
+    const maiorDiaExclusivo = new Date(Math.max(...diasDasSessoes.map((d) => d.getTime())));
+    maiorDiaExclusivo.setDate(maiorDiaExclusivo.getDate() + 1);
+
+    const ordensExistentes = await tx
+      .select({ data: salesOrders.data })
+      .from(salesOrders)
+      .where(and(eq(salesOrders.storeId, storeId), gte(salesOrders.data, menorDia), lt(salesOrders.data, maiorDiaExclusivo)));
+    const diasComVendas = new Set(ordensExistentes.map((o) => new Date(o.data).setHours(0, 0, 0, 0)));
+
+    const sessoesNovas = sessoes.filter((s) => {
+      const d = new Date(s.data);
+      d.setHours(0, 0, 0, 0);
+      return !diasComVendas.has(d.getTime());
+    });
+    const diasJaExistentes = sessoes.length - sessoesNovas.length;
+    const diasImportados = sessoesNovas.length;
+
     const [importRow] = await tx
       .insert(salesImports)
       .values({ storeId, arquivoNome: file.name, hashArquivo: hash, status: "concluido" })
       .returning();
 
-    const menuItemCache = new Map<string, { menuItemId: string; recipeVersionId: string }>();
-    const produtosNovosCriados: string[] = [];
-    let diasImportados = 0;
-    let diasJaExistentes = 0;
-    let totalLinhas = 0;
-
-    for (const sessao of sessoes) {
-      const inicioDia = new Date(sessao.data);
-      inicioDia.setHours(0, 0, 0, 0);
-      const fimDia = new Date(inicioDia);
-      fimDia.setDate(fimDia.getDate() + 1);
-
-      const jaExiste = await tx
-        .select({ id: salesOrders.id })
-        .from(salesOrders)
-        .where(
-          and(eq(salesOrders.storeId, storeId), gte(salesOrders.data, inicioDia), lt(salesOrders.data, fimDia))
-        )
-        .limit(1);
-
-      if (jaExiste.length > 0) {
-        diasJaExistentes++;
-        continue;
-      }
-      diasImportados++;
-
-      for (const produto of sessao.produtos) {
-        const nomeResolvido = MAPEAMENTO_PRODUTOS[produto.nome.toUpperCase()] ?? produto.nome;
-
-        let cacheEntry = menuItemCache.get(nomeResolvido);
-        if (!cacheEntry) {
-          const existenteItem = await tx
-            .select({ id: menuItems.id })
-            .from(menuItems)
-            .where(and(eq(menuItems.storeId, storeId), eq(menuItems.nome, nomeResolvido)))
-            .limit(1);
-
-          if (existenteItem.length > 0) {
-            const menuItemId = existenteItem[0].id;
-            const [versao] = await tx
-              .select({ id: recipeVersions.id })
-              .from(recipeVersions)
-              .where(eq(recipeVersions.menuItemId, menuItemId))
-              .limit(1);
-            cacheEntry = { menuItemId, recipeVersionId: versao.id };
-          } else {
-            const [novoItem] = await tx
-              .insert(menuItems)
-              .values({ storeId, nome: nomeResolvido, precoVenda: produto.ticketMedio.toString() })
-              .returning();
-            const [novaVersao] = await tx
-              .insert(recipeVersions)
-              .values({ menuItemId: novoItem.id, versao: 1 })
-              .returning();
-            cacheEntry = { menuItemId: novoItem.id, recipeVersionId: novaVersao.id };
-            produtosNovosCriados.push(nomeResolvido);
-          }
-          menuItemCache.set(nomeResolvido, cacheEntry);
-        }
-
-        const [order] = await tx
-          .insert(salesOrders)
-          .values({
-            storeId,
-            salesImportId: importRow.id,
-            data: sessao.data,
-            valorBruto: produto.totalVenda.toString(),
-            desconto: produto.totalDesconto.toString(),
-          })
-          .returning();
-
-        await tx.insert(salesOrderItems).values({
-          salesOrderId: order.id,
-          menuItemId: cacheEntry.menuItemId,
-          recipeVersionId: cacheEntry.recipeVersionId,
-          quantidade: produto.quantidade.toString(),
-          valorUnitario: produto.ticketMedio.toString(),
-          valorTotal: produto.totalVenda.toString(),
-        });
-        totalLinhas++;
-      }
+    if (sessoesNovas.length === 0) {
+      return { status: "ok" as const, diasImportados: 0, diasJaExistentes, produtosNovosCriados: [], totalLinhas: 0 };
     }
 
-    return { status: "ok" as const, diasImportados, diasJaExistentes, produtosNovosCriados, totalLinhas };
+    const linhas = sessoesNovas.flatMap((sessao) =>
+      sessao.produtos.map((produto) => ({
+        data: sessao.data,
+        nomeResolvido: MAPEAMENTO_PRODUTOS[produto.nome.toUpperCase()] ?? produto.nome,
+        quantidade: produto.quantidade,
+        totalVenda: produto.totalVenda,
+        ticketMedio: produto.ticketMedio,
+        totalDesconto: produto.totalDesconto,
+      }))
+    );
+
+    const nomesUnicos = [...new Set(linhas.map((l) => l.nomeResolvido))];
+    const precoPorNome = new Map<string, number>();
+    for (const l of linhas) {
+      if (!precoPorNome.has(l.nomeResolvido)) precoPorNome.set(l.nomeResolvido, l.ticketMedio);
+    }
+
+    const itensExistentes = await tx
+      .select({ id: menuItems.id, nome: menuItems.nome })
+      .from(menuItems)
+      .where(eq(menuItems.storeId, storeId));
+    const idPorNome = new Map(itensExistentes.map((i) => [i.nome, i.id]));
+
+    const nomesNovos = nomesUnicos.filter((n) => !idPorNome.has(n));
+    if (nomesNovos.length > 0) {
+      const novosItens = await tx
+        .insert(menuItems)
+        .values(nomesNovos.map((nome) => ({ storeId, nome, precoVenda: (precoPorNome.get(nome) ?? 0).toString() })))
+        .returning({ id: menuItems.id, nome: menuItems.nome });
+      for (const item of novosItens) idPorNome.set(item.nome, item.id);
+    }
+
+    const todosOsIds = [...new Set(nomesUnicos.map((n) => idPorNome.get(n)!))];
+    const versoesExistentes = await tx
+      .select({ id: recipeVersions.id, menuItemId: recipeVersions.menuItemId })
+      .from(recipeVersions)
+      .where(inArray(recipeVersions.menuItemId, todosOsIds));
+    const versaoPorItem = new Map(versoesExistentes.map((v) => [v.menuItemId, v.id]));
+
+    const itensSemVersao = todosOsIds.filter((id) => !versaoPorItem.has(id));
+    if (itensSemVersao.length > 0) {
+      const novasVersoes = await tx
+        .insert(recipeVersions)
+        .values(itensSemVersao.map((menuItemId) => ({ menuItemId, versao: 1 })))
+        .returning({ id: recipeVersions.id, menuItemId: recipeVersions.menuItemId });
+      for (const v of novasVersoes) versaoPorItem.set(v.menuItemId, v.id);
+    }
+
+    const pedidosInseridos = await tx
+      .insert(salesOrders)
+      .values(
+        linhas.map((l) => ({
+          storeId,
+          salesImportId: importRow.id,
+          data: l.data,
+          valorBruto: l.totalVenda.toString(),
+          desconto: l.totalDesconto.toString(),
+        }))
+      )
+      .returning({ id: salesOrders.id });
+
+    await tx.insert(salesOrderItems).values(
+      linhas.map((l, i) => {
+        const menuItemId = idPorNome.get(l.nomeResolvido)!;
+        return {
+          salesOrderId: pedidosInseridos[i].id,
+          menuItemId,
+          recipeVersionId: versaoPorItem.get(menuItemId)!,
+          quantidade: l.quantidade.toString(),
+          valorUnitario: l.ticketMedio.toString(),
+          valorTotal: l.totalVenda.toString(),
+        };
+      })
+    );
+
+    return {
+      status: "ok" as const,
+      diasImportados,
+      diasJaExistentes,
+      produtosNovosCriados: nomesNovos,
+      totalLinhas: linhas.length,
+    };
   });
 }
 

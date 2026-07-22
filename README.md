@@ -54,6 +54,8 @@ vendas, despesas, DRE).
   dedicada para ver as compras registradas (não só o cadastro de insumos)
 - Fichas técnicas: adicionar filtro de produtos (a lista cresce bastante) e uma
   seção de edição (hoje é só leitura)
+- DRE mais detalhado (hoje é só a estrutura básica)
+- Análises extras sobre vendas — ex: por dia da semana, sazonalidade
 
 Veja o documento completo de planejamento para o roadmap e as decisões de
 arquitetura por trás de cada escolha.

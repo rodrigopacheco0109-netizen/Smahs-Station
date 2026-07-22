@@ -1,62 +1,77 @@
-"use client";
+import Link from "next/link";
+import { getMesesDisponiveis, getDreReal, type EscopoDre } from "@/server/actions/dre";
+import { getStores } from "@/server/actions/stores";
+import { calcularDre, cmvPercentual, formatBRL, formatPercent } from "@/lib/calculations";
 
-import { useState } from "react";
-import { dreMensal } from "@/lib/mock-data";
-import { calcularDre, cmvPercentual, formatBRL, formatPercent, type DreInput } from "@/lib/calculations";
-import { PrototypeNotice } from "@/components/prototype-notice";
+// Lê do banco a cada request — não pode ser pré-renderizada em build.
+export const dynamic = "force-dynamic";
 
-type Escopo = "consolidado" | "club" | "dom";
+export default async function DrePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ mes?: string; escopo?: string }>;
+}) {
+  const params = await searchParams;
+  const [meses, lojas] = await Promise.all([getMesesDisponiveis(), getStores()]);
 
-const escopos: { id: Escopo; label: string }[] = [
-  { id: "consolidado", label: "Consolidado" },
-  { id: "club", label: "Smash Station Club" },
-  { id: "dom", label: "Smash Station Dom" },
-];
+  if (meses.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h1 className="text-xl font-semibold text-neutral-900">DRE</h1>
+          <p className="text-sm text-neutral-500">Demonstrativo de resultado</p>
+        </div>
+        <p className="text-sm text-neutral-500">Ainda não há vendas nem despesas lançadas para calcular o DRE.</p>
+      </div>
+    );
+  }
 
-function somarDre(a: DreInput, b: DreInput): DreInput {
-  return {
-    receitaBruta: a.receitaBruta + b.receitaBruta,
-    deducoes: a.deducoes + b.deducoes,
-    custosVariaveis: a.custosVariaveis + b.custosVariaveis,
-    despesasOperacionais: a.despesasOperacionais + b.despesasOperacionais,
-    despesasFinanceiras: a.despesasFinanceiras + b.despesasFinanceiras,
-  };
-}
+  const mesAno = params.mes && meses.some((m) => m.valor === params.mes) ? params.mes : meses[0].valor;
+  const escopoParam = params.escopo ?? "consolidado";
+  const escopo: EscopoDre =
+    escopoParam === "consolidado" ? { tipo: "consolidado" } : { tipo: "loja", storeId: escopoParam };
 
-export default function DrePage() {
-  const [escopo, setEscopo] = useState<Escopo>("consolidado");
-
-  const input =
-    escopo === "consolidado" ? somarDre(dreMensal.club, dreMensal.dom) : dreMensal[escopo];
-  const dre = calcularDre(input);
+  const dadosReais = await getDreReal(mesAno, escopo);
+  const dre = calcularDre(dadosReais);
   const cmv = cmvPercentual(dre.custosVariaveis, dre.receitaLiquida);
+  const mesLabel = meses.find((m) => m.valor === mesAno)?.label ?? mesAno;
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-neutral-900">DRE</h1>
-        <p className="text-sm text-neutral-500">Demonstrativo de resultado do mês — julho de 2026</p>
+        <p className="text-sm text-neutral-500">Demonstrativo de resultado — {mesLabel}</p>
       </div>
 
-      <PrototypeNotice>
-        DRE ainda não está ligado ao banco — os valores abaixo são dados de exemplo.
-      </PrototypeNotice>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex gap-1 border-b border-neutral-200">
+          <AbaEscopo mes={mesAno} escopoAtual={escopoParam} escopoId="consolidado" label="Consolidado" />
+          {lojas.map((loja) => (
+            <AbaEscopo key={loja.id} mes={mesAno} escopoAtual={escopoParam} escopoId={loja.id} label={loja.nome} />
+          ))}
+        </div>
 
-      <div className="flex gap-1 border-b border-neutral-200">
-        {escopos.map((e) => (
+        <form method="GET" className="flex items-center gap-2">
+          <input type="hidden" name="escopo" value={escopoParam} />
+          <select name="mes" defaultValue={mesAno} className="rounded-lg border border-neutral-200 px-3 py-2 text-sm">
+            {meses.map((m) => (
+              <option key={m.valor} value={m.valor}>
+                {m.label}
+              </option>
+            ))}
+          </select>
           <button
-            key={e.id}
-            onClick={() => setEscopo(e.id)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              escopo === e.id
-                ? "border-orange-600 text-orange-700"
-                : "border-transparent text-neutral-500 hover:text-neutral-800"
-            }`}
+            type="submit"
+            className="rounded-lg border border-neutral-200 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50"
           >
-            {e.label}
+            Ver
           </button>
-        ))}
+        </form>
       </div>
+
+      {dadosReais.avisoDespesas && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">⚠ {dadosReais.avisoDespesas}</p>
+      )}
 
       <div className="grid md:grid-cols-3 gap-4">
         <div className="rounded-xl border border-neutral-200 bg-white p-4">
@@ -99,6 +114,30 @@ export default function DrePage() {
         </dl>
       </div>
     </div>
+  );
+}
+
+function AbaEscopo({
+  mes,
+  escopoAtual,
+  escopoId,
+  label,
+}: {
+  mes: string;
+  escopoAtual: string;
+  escopoId: string;
+  label: string;
+}) {
+  const ativo = escopoAtual === escopoId;
+  return (
+    <Link
+      href={`/dre?mes=${mes}&escopo=${escopoId}`}
+      className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+        ativo ? "border-orange-600 text-orange-700" : "border-transparent text-neutral-500 hover:text-neutral-800"
+      }`}
+    >
+      {label}
+    </Link>
   );
 }
 

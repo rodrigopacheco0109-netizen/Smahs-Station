@@ -5,13 +5,17 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { getCategoriasDespesa } from "./despesas";
 
-export interface DadosExtraidosNotaFiscal {
+export interface ItemNotaFiscal {
   descricao: string;
   valor: number;
   categoriaId: string;
   categoriaNome: string;
-  dataEmissao: string | null;
+}
+
+export interface DadosExtraidosNotaFiscal {
   fornecedor: string | null;
+  dataEmissao: string | null;
+  itens: ItemNotaFiscal[];
 }
 
 export type ResultadoLeituraNota =
@@ -58,12 +62,16 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
         source: { type: "base64", media_type: arquivo.type as "image/jpeg" | "image/png" | "image/webp", data: base64 },
       } as const);
 
+  const ItemSchema = z.object({
+    descricao: z.string().describe("Nome do item/produto exatamente como está na nota (ex: Batata congelada, Nuggets, Refrigerante)"),
+    valor: z.number().describe("Valor deste item específico, em reais, apenas o número"),
+    categoria: z.enum(nomesCategorias).describe("Categoria mais adequada para este item dentre as opções fornecidas"),
+  });
+
   const NotaFiscalSchema = z.object({
-    descricao: z.string().describe("Descrição curta da despesa: fornecedor + o que foi comprado"),
-    valor: z.number().describe("Valor total da nota, em reais, apenas o número"),
-    categoria: z.enum(nomesCategorias).describe("Categoria mais adequada dentre as opções fornecidas"),
+    fornecedor: z.string().nullable().describe("Nome do fornecedor/emissor da nota, ou null se não identificado"),
     dataEmissao: z.string().nullable().describe("Data de emissão no formato YYYY-MM-DD, ou null se ilegível"),
-    fornecedor: z.string().nullable().describe("Nome do fornecedor/emissor, ou null se não identificado"),
+    itens: z.array(ItemSchema).min(1).describe("Um item para cada produto/linha distinta da nota — não agrupe tudo em um só"),
   });
 
   const client = new Anthropic();
@@ -80,7 +88,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
             documentoParaAnalise,
             {
               type: "text",
-              text: "Esta é uma nota fiscal ou recibo de despesa de um restaurante (hamburgueria). Leia o documento e extraia os dados pedidos.",
+              text: "Esta é uma nota fiscal ou recibo de despesa de um restaurante (hamburgueria). Leia o documento e extraia CADA item/produto da nota separadamente (ex: batata, nuggets, refrigerante), com o valor e a categoria de cada um — não junte tudo em um único item.",
             },
           ],
         },
@@ -99,17 +107,22 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
     return { status: "erro", mensagem: "A IA não conseguiu ler os dados da nota. Tente outra foto/arquivo." };
   }
 
-  const categoriaEncontrada = categorias.find((c) => c.nome === dados.categoria)!;
+  const itens: ItemNotaFiscal[] = dados.itens.map((item) => {
+    const categoriaEncontrada = categorias.find((c) => c.nome === item.categoria)!;
+    return {
+      descricao: item.descricao,
+      valor: item.valor,
+      categoriaId: categoriaEncontrada.id,
+      categoriaNome: categoriaEncontrada.nome,
+    };
+  });
 
   return {
     status: "ok",
     dados: {
-      descricao: dados.descricao,
-      valor: dados.valor,
-      categoriaId: categoriaEncontrada.id,
-      categoriaNome: categoriaEncontrada.nome,
-      dataEmissao: dados.dataEmissao,
       fornecedor: dados.fornecedor,
+      dataEmissao: dados.dataEmissao,
+      itens,
     },
   };
 }

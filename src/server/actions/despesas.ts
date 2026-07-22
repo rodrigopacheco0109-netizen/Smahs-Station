@@ -1,6 +1,7 @@
 "use server";
 
 import { eq, sql } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
 import { expenseCategories, expenses } from "@/server/db/schema";
 
@@ -85,5 +86,56 @@ export async function criarDespesa(formData: FormData): Promise<ResultadoDespesa
     origem,
   });
 
+  return { status: "ok" };
+}
+
+export interface ItemDespesaEntrada {
+  descricao: string;
+  categoriaId: string;
+  valor: number;
+}
+
+export interface DadosComunsDespesa {
+  competencia: string; // "YYYY-MM"
+  dataVencimento: string | null;
+  dataPagamento: string | null;
+  formaPagamento: string | null;
+  status: string;
+  origem: string;
+}
+
+export async function criarDespesasEmLote(
+  itens: ItemDespesaEntrada[],
+  comuns: DadosComunsDespesa,
+): Promise<ResultadoDespesa> {
+  if (!db) throw new Error("DATABASE_URL não configurada");
+
+  if (itens.length === 0) {
+    return { status: "erro", mensagem: "Selecione ao menos um item para lançar." };
+  }
+  if (!comuns.competencia) {
+    return { status: "erro", mensagem: "Informe a competência." };
+  }
+  for (const item of itens) {
+    if (!item.descricao || !item.categoriaId || !Number.isFinite(item.valor) || item.valor <= 0) {
+      return { status: "erro", mensagem: `Item inválido: ${item.descricao || "sem descrição"}.` };
+    }
+  }
+
+  await db.insert(expenses).values(
+    itens.map((item) => ({
+      descricao: item.descricao,
+      categoriaId: item.categoriaId,
+      competencia: new Date(`${comuns.competencia}-01T00:00:00`),
+      dataVencimento: comuns.dataVencimento ? new Date(`${comuns.dataVencimento}T00:00:00`) : null,
+      dataPagamento: comuns.dataPagamento ? new Date(`${comuns.dataPagamento}T00:00:00`) : null,
+      valor: item.valor.toString(),
+      formaPagamento: comuns.formaPagamento || null,
+      status: comuns.status,
+      origem: comuns.origem,
+    })),
+  );
+
+  revalidatePath("/despesas");
   return { status: "ok" };
 }

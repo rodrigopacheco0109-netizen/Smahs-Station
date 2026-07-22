@@ -47,11 +47,8 @@ export function ItensNotaFiscalForm({
       incluir: true,
     })),
   );
-  const [competencia, setCompetencia] = useState(dados.dataEmissao ? dados.dataEmissao.slice(0, 7) : "");
-  const [dataVencimento, setDataVencimento] = useState("");
-  const [dataPagamento, setDataPagamento] = useState("");
-  const [formaPagamento, setFormaPagamento] = useState("");
-  const [status, setStatus] = useState("pendente");
+  const [dataNota, setDataNota] = useState(dados.dataEmissao ?? "");
+  const [numeroNota, setNumeroNota] = useState(dados.numeroNota ?? "");
   const [erro, setErro] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -81,25 +78,26 @@ export function ItensNotaFiscalForm({
       setErro("Selecione ao menos um item.");
       return;
     }
-    if (!competencia) {
-      setErro("Informe a competência.");
+    if (!dataNota) {
+      setErro("Informe a data da nota.");
       return;
     }
     startTransition(async () => {
+      const sufixoNota = numeroNota ? ` — NF ${numeroNota}` : "";
       const resultado = await criarDespesasEmLote(
         selecionadas.map((l) => ({
           descricao: `${l.descricao} — ${formatarNumero(l.quantidade)} ${l.unidade}${
             l.unidadesPorCaixa !== null ? ` (${formatarNumero(l.unidadesPorCaixa)} un./cx)` : ""
-          } x R$ ${l.valorUnitario.toFixed(2).replace(".", ",")}`,
+          } x R$ ${l.valorUnitario.toFixed(2).replace(".", ",")}${sufixoNota}`,
           categoriaId: l.categoriaId,
           valor: l.valorTotal,
         })),
         {
-          competencia,
-          dataVencimento: dataVencimento || null,
-          dataPagamento: dataPagamento || null,
-          formaPagamento: formaPagamento || null,
-          status,
+          competencia: dataNota.slice(0, 7),
+          dataVencimento: null,
+          dataPagamento: null,
+          formaPagamento: null,
+          status: "pendente",
           origem: "ocr_nota",
         },
       );
@@ -241,59 +239,24 @@ export function ItensNotaFiscalForm({
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-neutral-500">Competência</label>
-          <input
-            type="month"
-            value={competencia}
-            onChange={(e) => setCompetencia(e.target.value)}
-            className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
-          />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-neutral-500">Vencimento</label>
+          <label className="text-xs font-medium text-neutral-500">Data da nota</label>
           <input
             type="date"
-            value={dataVencimento}
-            onChange={(e) => setDataVencimento(e.target.value)}
+            value={dataNota}
+            onChange={(e) => setDataNota(e.target.value)}
             className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-neutral-500">Pagamento</label>
+          <label className="text-xs font-medium text-neutral-500">Número da nota</label>
           <input
-            type="date"
-            value={dataPagamento}
-            onChange={(e) => setDataPagamento(e.target.value)}
+            type="text"
+            value={numeroNota}
+            onChange={(e) => setNumeroNota(e.target.value)}
             className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
           />
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-neutral-500">Forma de pagamento</label>
-          <select
-            value={formaPagamento}
-            onChange={(e) => setFormaPagamento(e.target.value)}
-            className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
-          >
-            <option value="">—</option>
-            <option value="pix">Pix</option>
-            <option value="dinheiro">Dinheiro</option>
-            <option value="cartao">Cartão</option>
-            <option value="boleto">Boleto</option>
-            <option value="transferencia">Transferência</option>
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-neutral-500">Status</label>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
-          >
-            <option value="pendente">Pendente</option>
-            <option value="pago">Pago</option>
-          </select>
-        </div>
-        <div className="flex items-end">
+        <div className="flex items-end sm:col-span-2 lg:col-span-2">
           <button
             type="button"
             onClick={salvar}

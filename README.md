@@ -56,10 +56,12 @@ vendas, despesas, DRE).
   seção de edição (hoje é só leitura)
 - DRE mais detalhado (hoje é só a estrutura básica)
 - Análises extras sobre vendas — ex: por dia da semana, sazonalidade
-- Upload de notas fiscais (compras): ainda não existe na plataforma — plano
-  original previa OCR (ver `ANTHROPIC_API_KEY` no `.env.example`)
 - Lançamento manual de estoque: tela para digitar a contagem do estoque
   central e quanto foi enviado (transferência) para cada loja
+- Vendas: hoje a importação só empilha — se um dia já tem vendas registradas
+  para a loja, um novo upload daquele dia é ignorado (não substitui). Pensar
+  numa opção de "substituir" vendas de um dia/loja específicos, para quando
+  precisar corrigir um arquivo já importado
 
 Veja o documento completo de planejamento para o roadmap e as decisões de
 arquitetura por trás de cada escolha.

@@ -20,7 +20,18 @@ export interface ItemNotaFiscal {
 export interface DadosExtraidosNotaFiscal {
   fornecedor: string | null;
   dataEmissao: string | null;
+  numeroNota: string | null;
   itens: ItemNotaFiscal[];
+}
+
+// Códigos de unidade como "CX5", "PC1", "UN1" trazem o multiplicador de
+// pacotes/unidades embutido no próprio código (letras + número final). Isso é
+// texto literal da nota, então extrair por regex é bem mais confiável do que
+// pedir para o modelo "calcular" esse número à parte (ele já confundiu com a
+// quantidade pedida em testes reais).
+function extrairMultiplicadorDoCodigoUnidade(unidade: string): number | null {
+  const match = unidade.trim().match(/^[A-Za-zÀ-ÿ]+(\d+)$/);
+  return match ? Number(match[1]) : null;
 }
 
 export type ResultadoLeituraNota =
@@ -95,6 +106,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
   const NotaFiscalSchema = z.object({
     fornecedor: z.string().nullable().describe("Nome do fornecedor/emissor da nota, ou null se não identificado"),
     dataEmissao: z.string().nullable().describe("Data de emissão no formato YYYY-MM-DD, ou null se ilegível"),
+    numeroNota: z.string().nullable().describe("Número da nota fiscal/recibo, exatamente como impresso, ou null se não identificado"),
     itens: z.array(ItemSchema).min(1).describe("Um item para cada produto/linha distinta da nota — não agrupe tudo em um só"),
   });
 
@@ -112,7 +124,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
             documentoParaAnalise,
             {
               type: "text",
-              text: "Esta é uma nota fiscal ou recibo de despesa de um restaurante (hamburgueria). Leia o documento e extraia CADA item/produto da nota separadamente (ex: batata, nuggets, refrigerante), com quantidade, unidade/tipo, valor unitário, valor total, peso por unidade (se indicado) e categoria de cada um — não junte tudo em um único item.\n\nAtenção especial a itens vendidos em caixa (CX): extraia os três números separadamente, sem multiplicar nada você mesmo — deixe o cálculo final para o sistema. Exemplo: uma nota de batata congelada onde cada pacote tem 2,5kg, cada caixa vem com 5 pacotes (indicado como 'CX5') e foram pedidas 3 caixas, deve ser lido como: quantidade=3, unidadesPorCaixa=5, pesoKgUnitario=2.5 (o peso do pacote, não da caixa).",
+              text: "Esta é uma nota fiscal ou recibo de despesa de um restaurante (hamburgueria). Extraia também o número da nota fiscal/recibo (numeroNota), se houver.\n\nLeia o documento e extraia CADA item/produto da nota separadamente (ex: batata, nuggets, refrigerante), com quantidade, unidade/tipo, valor unitário, valor total, peso por unidade (se indicado) e categoria de cada um — não junte tudo em um único item.\n\nAtenção especial a itens vendidos em caixa (CX): a coluna de unidade/tipo costuma trazer códigos como 'CX5', 'PC1', 'UN1', onde o número final é o multiplicador de pacotes por caixa (CX5 = 5 pacotes por caixa; PC1/UN1 = 1, unidade avulsa). Copie o código de unidade exatamente como está (ex: 'CX5'), e a quantidade continua sendo o número de caixas pedidas — não multiplique nada você mesmo. Exemplo: nota de batata congelada com pacote de 2,5kg, código de unidade 'CX5' e 3 caixas pedidas, deve ser lido como: quantidade=3, unidade='CX5', pesoKgUnitario=2.5 (o peso do pacote, não da caixa).",
             },
           ],
         },
@@ -133,6 +145,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
 
   const itens: ItemNotaFiscal[] = dados.itens.map((item) => {
     const categoriaEncontrada = categorias.find((c) => c.nome === item.categoria)!;
+    const multiplicadorDoCodigo = extrairMultiplicadorDoCodigoUnidade(item.unidade);
     return {
       descricao: item.descricao,
       quantidade: item.quantidade,
@@ -140,7 +153,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
       valorUnitario: item.valorUnitario,
       valorTotal: item.valorTotal,
       pesoKgUnitario: item.pesoKgUnitario,
-      unidadesPorCaixa: item.unidadesPorCaixa,
+      unidadesPorCaixa: multiplicadorDoCodigo ?? item.unidadesPorCaixa,
       categoriaId: categoriaEncontrada.id,
       categoriaNome: categoriaEncontrada.nome,
     };
@@ -151,6 +164,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
     dados: {
       fornecedor: dados.fornecedor,
       dataEmissao: dados.dataEmissao,
+      numeroNota: dados.numeroNota,
       itens,
     },
   };

@@ -22,21 +22,31 @@ export interface DadosExtraidosNotaFiscal {
   dataEmissao: string | null;
   numeroNota: string | null;
   itens: ItemNotaFiscal[];
+  avisoDivergencia: string | null;
 }
 
-// Códigos de unidade como "CX5", "PC1", "UN1", "KG1" trazem o multiplicador
-// (quantas unidades elementares por caixa/pacote) embutido no próprio código:
-// letras + número final. É texto literal da nota, então extrair por regex é
-// bem mais confiável do que pedir para o modelo "copiar" esse número à parte
-// (ele já confundiu com a quantidade pedida em testes reais). Quando o
-// prefixo é KG, a própria quantidade já É o peso total em kg — não há
-// pacote/caixa nem peso unitário para multiplicar.
+// Códigos de unidade trazem o multiplicador (quantas unidades elementares por
+// caixa/pacote) embutido no próprio código — às vezes com número (CX5, PC1,
+// UN1, KG1), às vezes sem (UN, PC, KG sozinhos, que significam "1"). É texto
+// literal da nota, então extrair por regex é bem mais confiável do que pedir
+// para o modelo "copiar" esse número à parte (ele já confundiu com a
+// quantidade pedida em testes reais). Quando o prefixo é KG, a própria
+// quantidade já É o peso total em kg — não há pacote/caixa nem peso unitário
+// para multiplicar. "CX" sozinho (sem número) é ambíguo demais — fica null e
+// tenta a descrição como fallback.
+const CODIGOS_UNIDADE_UNICA = ["UN", "PC", "PCT", "BD", "KG"];
+
 function interpretarCodigoUnidade(unidade: string): { multiplicador: number | null; ehQuilo: boolean } {
-  const limpo = unidade.trim().toUpperCase().replace(/\s+/g, "");
-  const match = limpo.match(/^([A-ZÀ-ÿ]+)(\d+)$/);
-  if (!match) return { multiplicador: null, ehQuilo: false };
-  const [, prefixo, numero] = match;
-  return { multiplicador: Number(numero), ehQuilo: prefixo === "KG" };
+  const limpo = unidade.trim().toUpperCase().replace(/[^A-ZÀ-ÿ0-9]/g, "");
+  const comDigito = limpo.match(/^([A-ZÀ-ÿ]+)(\d+)$/);
+  if (comDigito) {
+    const [, prefixo, numero] = comDigito;
+    return { multiplicador: Number(numero), ehQuilo: prefixo === "KG" };
+  }
+  if (CODIGOS_UNIDADE_UNICA.includes(limpo)) {
+    return { multiplicador: 1, ehQuilo: limpo === "KG" };
+  }
+  return { multiplicador: null, ehQuilo: false };
 }
 
 // Muitas descrições já trazem o peso por extenso (ex: "5X2,5KG" = 5 pacotes
@@ -49,6 +59,14 @@ function extrairPesoDaDescricao(descricao: string): number | null {
   const somentePeso = descricao.match(/(\d+(?:[,.]\d+)?)\s*KG\b/i);
   if (somentePeso) return Number(somentePeso[1].replace(",", "."));
   return null;
+}
+
+// Quando o código de unidade não traz o multiplicador (ex: "CX" sozinho),
+// muitas descrições informam por extenso, tipo "CTD CX 48 UNID" ou
+// "CX C/24UN" — procura esse padrão perto da palavra CX na descrição.
+function extrairMultiplicadorDaDescricao(descricao: string): number | null {
+  const match = descricao.match(/\bCX\b\D{0,8}?(\d+)\s*(?:UN|UNID|PC|PCT)\b/i);
+  return match ? Number(match[1]) : null;
 }
 
 export type ResultadoLeituraNota =
@@ -128,7 +146,13 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
     fornecedor: z.string().nullable().describe("Nome do fornecedor/emissor da nota, ou null se não identificado"),
     dataEmissao: z.string().nullable().describe("Data de emissão no formato YYYY-MM-DD, ou null se ilegível"),
     numeroNota: z.string().nullable().describe("Número da nota fiscal/recibo, exatamente como impresso, ou null se não identificado"),
-    itens: z.array(ItemSchema).min(1).describe("Um item para cada produto/linha distinta da nota — não agrupe tudo em um só"),
+    valorTotalNota: z
+      .number()
+      .nullable()
+      .describe(
+        "Valor total da nota (campo 'VALOR TOTAL DA NOTA' ou 'VALOR TOTAL DOS PRODUTOS'), em reais. Usado só para conferir se algum item da tabela ficou de fora — null se não conseguir identificar.",
+      ),
+    itens: z.array(ItemSchema).min(1).describe("Um item para CADA linha da tabela de produtos, sem pular nenhuma — não agrupe tudo em um só"),
   });
 
   const client = new Anthropic();
@@ -145,7 +169,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
             documentoParaAnalise,
             {
               type: "text",
-              text: "Esta é uma nota fiscal (DANFE) de um restaurante (hamburgueria). Extraia também o número da nota fiscal (numeroNota), se houver.\n\nNa tabela 'DADOS DO PRODUTO/SERVIÇOS', leia CADA linha/item separadamente (ex: batata, bacon, queijo), extraindo com cuidado célula por célula — as colunas NCM/SH, CST, CFOP, UNID e QUANTIDADE ficam bem próximas umas das outras, não confunda os valores entre elas.\n\nA coluna UNID traz um código de letras + um número final (ex: 'PC1', 'UN1', 'BD1', 'CX5', 'CX2', 'CX6', 'KG1') — copie esse código EXATAMENTE como está impresso, caractere por caractere, no campo unidade. Não interprete nem separe o número — apenas copie o texto da célula.\n\nA coluna QUANTIDADE é um número separado (ex: '3,0000', '6,3780') — os números na nota usam vírgula como separador decimal (formato brasileiro); converta para ponto decimal nos campos numéricos (ex: '6,3780' vira 6.378).\n\nO peso do item, quando existir, normalmente já aparece por extenso na própria descrição do produto (ex: 'BATATA ... 5X2,5KG' ou 'BANHA ANIMAL AURORA 1KG') — extraia esse peso em pesoKgUnitario quando conseguir identificá-lo na descrição.",
+              text: "Esta é uma nota fiscal (DANFE) de um restaurante (hamburgueria). Extraia também o número da nota fiscal (numeroNota) e o valor total da nota (valorTotalNota — campo 'VALOR TOTAL DA NOTA' ou 'VALOR TOTAL DOS PRODUTOS'), se houver.\n\nNa tabela 'DADOS DO PRODUTO/SERVIÇOS', leia CADA linha/item, uma por uma, do topo até o final da tabela — é muito importante não pular nenhuma linha, incluindo a primeira e a última. Extraia com cuidado célula por célula — as colunas NCM/SH, CST, CFOP, UNID e QUANTIDADE ficam bem próximas umas das outras, não confunda os valores entre elas.\n\nA coluna UNID traz um código, com ou sem número no final (ex: 'PC1', 'UN1', 'BD1', 'CX5', 'CX2', 'CX6', 'KG1', ou às vezes só 'UN', 'CX', 'KG' sem número) — copie esse código EXATAMENTE como está impresso, caractere por caractere, no campo unidade. Não interprete nem separe o número — apenas copie o texto da célula.\n\nA coluna QUANTIDADE é um número separado (ex: '3,0000', '6,3780') — os números na nota usam vírgula como separador decimal (formato brasileiro); converta para ponto decimal nos campos numéricos (ex: '6,3780' vira 6.378).\n\nO peso do item, quando existir, normalmente já aparece por extenso na própria descrição do produto (ex: 'BATATA ... 5X2,5KG' ou 'BANHA ANIMAL AURORA 1KG') — extraia esse peso em pesoKgUnitario quando conseguir identificá-lo na descrição. Se a descrição indicar quantas unidades vêm por caixa (ex: 'CX 48 UNID'), você pode preencher unidadesPorCaixa também, mas isso é só um palpite de reserva — o sistema já calcula esse número por conta própria.",
             },
           ],
         },
@@ -168,6 +192,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
     const categoriaEncontrada = categorias.find((c) => c.nome === item.categoria)!;
     const { multiplicador, ehQuilo } = interpretarCodigoUnidade(item.unidade);
     const pesoDaDescricao = extrairPesoDaDescricao(item.descricao);
+    const multiplicadorDaDescricao = extrairMultiplicadorDaDescricao(item.descricao);
     return {
       descricao: item.descricao,
       quantidade: item.quantidade,
@@ -175,11 +200,24 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
       valorUnitario: item.valorUnitario,
       valorTotal: item.valorTotal,
       pesoKgUnitario: ehQuilo ? 1 : (pesoDaDescricao ?? item.pesoKgUnitario),
-      unidadesPorCaixa: ehQuilo ? 1 : (multiplicador ?? item.unidadesPorCaixa),
+      unidadesPorCaixa: ehQuilo ? 1 : (multiplicador ?? multiplicadorDaDescricao ?? item.unidadesPorCaixa),
       categoriaId: categoriaEncontrada.id,
       categoriaNome: categoriaEncontrada.nome,
     };
   });
+
+  // Rede de segurança contra itens que a IA deixa de fora (já aconteceu em
+  // teste real): confere se a soma dos itens lidos bate com o valor total
+  // impresso na nota, e avisa o usuário antes de ele lançar, em vez de
+  // deixar passar em silêncio.
+  let avisoDivergencia: string | null = null;
+  if (dados.valorTotalNota !== null) {
+    const somaItens = itens.reduce((soma, item) => soma + item.valorTotal, 0);
+    const diferenca = dados.valorTotalNota - somaItens;
+    if (Math.abs(diferenca) > 0.05) {
+      avisoDivergencia = `A soma dos itens lidos (R$ ${somaItens.toFixed(2).replace(".", ",")}) não bate com o valor total da nota (R$ ${dados.valorTotalNota.toFixed(2).replace(".", ",")}) — confira se algum item não foi lido corretamente antes de lançar.`;
+    }
+  }
 
   return {
     status: "ok",
@@ -188,6 +226,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
       dataEmissao: dados.dataEmissao,
       numeroNota: dados.numeroNota,
       itens,
+      avisoDivergencia,
     },
   };
 }

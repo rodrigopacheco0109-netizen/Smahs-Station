@@ -12,6 +12,7 @@ export interface ItemNotaFiscal {
   valorUnitario: number;
   valorTotal: number;
   pesoKgUnitario: number | null;
+  unidadesPorCaixa: number | null;
   categoriaId: string;
   categoriaNome: string;
 }
@@ -78,6 +79,12 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
       .describe(
         "Peso em quilos de UMA unidade/embalagem deste item, somente se a nota indicar isso explicitamente (ex: pacote de 2kg, caixa de 5kg). Null se a nota não informar peso.",
       ),
+    unidadesPorCaixa: z
+      .number()
+      .nullable()
+      .describe(
+        "Quando a unidade for caixa (CX) e a nota indicar quantos pacotes/unidades vêm dentro de cada caixa (ex: 'CX 12X1KG', 'CX C/24UN'), coloque aqui esse número de pacotes por caixa. A quantidade acima continua sendo o número de caixas, não o total de pacotes. Null se não for vendido em caixa ou a nota não indicar essa quebra.",
+      ),
     categoria: z.enum(nomesCategorias).describe("Categoria mais adequada para este item dentre as opções fornecidas"),
   });
 
@@ -101,7 +108,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
             documentoParaAnalise,
             {
               type: "text",
-              text: "Esta é uma nota fiscal ou recibo de despesa de um restaurante (hamburgueria). Leia o documento e extraia CADA item/produto da nota separadamente (ex: batata, nuggets, refrigerante), com quantidade, unidade/tipo, valor unitário, valor total, peso por unidade (se indicado) e categoria de cada um — não junte tudo em um único item.",
+              text: "Esta é uma nota fiscal ou recibo de despesa de um restaurante (hamburgueria). Leia o documento e extraia CADA item/produto da nota separadamente (ex: batata, nuggets, refrigerante), com quantidade, unidade/tipo, valor unitário, valor total, peso por unidade (se indicado) e categoria de cada um — não junte tudo em um único item. Quando o item for vendido em caixa (CX) e a nota indicar quantos pacotes/unidades vêm em cada caixa (ex: 'CX 12X1KG', 'CX C/24UN'), informe também esse número de unidades por caixa separadamente da quantidade de caixas.",
             },
           ],
         },
@@ -129,6 +136,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
       valorUnitario: item.valorUnitario,
       valorTotal: item.valorTotal,
       pesoKgUnitario: item.pesoKgUnitario,
+      unidadesPorCaixa: item.unidadesPorCaixa,
       categoriaId: categoriaEncontrada.id,
       categoriaNome: categoriaEncontrada.nome,
     };

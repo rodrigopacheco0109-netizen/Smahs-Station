@@ -1,5 +1,5 @@
 import { getCategoriasDespesa, getDespesas } from "@/server/actions/despesas";
-import { DespesaForm } from "@/components/despesa-form";
+import { LancamentoDespesa } from "@/components/lancamento-despesa";
 import { formatBRL } from "@/lib/calculations";
 
 // Lê do banco a cada request — não pode ser pré-renderizada em build.
@@ -17,7 +17,7 @@ export default async function DespesasPage() {
         </p>
       </div>
 
-      <DespesaForm categorias={categorias} />
+      <LancamentoDespesa categorias={categorias} />
 
       <div>
         <p className="text-sm font-medium text-neutral-900 mb-3">Despesas lançadas</p>

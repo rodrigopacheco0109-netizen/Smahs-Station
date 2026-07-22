@@ -62,6 +62,7 @@ export async function criarDespesa(formData: FormData): Promise<ResultadoDespesa
   const pagamentoStr = formData.get("dataPagamento") as string | null;
   const formaPagamento = formData.get("formaPagamento") as string | null;
   const status = (formData.get("status") as string) || "pendente";
+  const origem = (formData.get("origem") as string) || "manual";
 
   if (!descricao || !categoriaId || !competenciaStr || !valorStr) {
     return { status: "erro", mensagem: "Preencha descrição, categoria, competência e valor." };
@@ -81,7 +82,7 @@ export async function criarDespesa(formData: FormData): Promise<ResultadoDespesa
     valor: valor.toString(),
     formaPagamento: formaPagamento || null,
     status,
-    origem: "manual",
+    origem,
   });
 
   return { status: "ok" };

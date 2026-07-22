@@ -12,13 +12,35 @@ async function acao(_anterior: ResultadoDespesa | null, formData: FormData): Pro
   }
 }
 
-export function DespesaForm({ categorias }: { categorias: CategoriaDespesa[] }) {
+export interface ValoresIniciaisDespesa {
+  descricao?: string;
+  categoriaId?: string;
+  valor?: number;
+  competencia?: string; // "YYYY-MM"
+}
+
+export function DespesaForm({
+  categorias,
+  valoresIniciais,
+  origem = "manual",
+}: {
+  categorias: CategoriaDespesa[];
+  valoresIniciais?: ValoresIniciaisDespesa;
+  origem?: string;
+}) {
   const [resultado, formAction, isPending] = useActionState<ResultadoDespesa | null, FormData>(acao, null);
 
   return (
     <div className="rounded-xl border border-neutral-200 bg-white p-5">
       <p className="text-sm font-medium text-neutral-900 mb-4">Lançar despesa</p>
+      {valoresIniciais && (
+        <p className="mb-4 rounded-lg bg-orange-50 px-3 py-2 text-xs text-orange-800">
+          Dados lidos automaticamente pela IA — revise antes de salvar.
+        </p>
+      )}
       <form action={formAction} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <input type="hidden" name="origem" value={origem} />
+
         <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-2">
           <label htmlFor="descricao" className="text-xs font-medium text-neutral-500">
             Descrição
@@ -28,6 +50,7 @@ export function DespesaForm({ categorias }: { categorias: CategoriaDespesa[] }) 
             name="descricao"
             type="text"
             required
+            defaultValue={valoresIniciais?.descricao}
             className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
           />
         </div>
@@ -40,6 +63,7 @@ export function DespesaForm({ categorias }: { categorias: CategoriaDespesa[] }) 
             id="categoriaId"
             name="categoriaId"
             required
+            defaultValue={valoresIniciais?.categoriaId}
             className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
           >
             {categorias.map((c) => (
@@ -59,6 +83,7 @@ export function DespesaForm({ categorias }: { categorias: CategoriaDespesa[] }) 
             name="competencia"
             type="month"
             required
+            defaultValue={valoresIniciais?.competencia}
             className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
           />
         </div>
@@ -74,6 +99,7 @@ export function DespesaForm({ categorias }: { categorias: CategoriaDespesa[] }) 
             step="0.01"
             min="0.01"
             required
+            defaultValue={valoresIniciais?.valor}
             className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
           />
         </div>

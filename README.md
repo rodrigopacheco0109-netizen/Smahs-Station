@@ -50,6 +50,10 @@ vendas, despesas, DRE).
 - CRUD de produtos/fichas técnicas (hoje são só leitura)
 - Assistente de importação de vendas por Excel
 - Deploy: ver seção 29 do documento de planejamento (VPS + Coolify)
+- Página de Compras: quando entrarmos no upload de notas fiscais, ter uma tela
+  dedicada para ver as compras registradas (não só o cadastro de insumos)
+- Fichas técnicas: adicionar filtro de produtos (a lista cresce bastante) e uma
+  seção de edição (hoje é só leitura)
 
 Veja o documento completo de planejamento para o roadmap e as decisões de
 arquitetura por trás de cada escolha.

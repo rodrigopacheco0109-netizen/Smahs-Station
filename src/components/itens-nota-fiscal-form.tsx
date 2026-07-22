@@ -83,29 +83,33 @@ export function ItensNotaFiscalForm({
       return;
     }
     startTransition(async () => {
-      const sufixoNota = numeroNota ? ` — NF ${numeroNota}` : "";
-      const resultado = await criarDespesasEmLote(
-        selecionadas.map((l) => ({
-          descricao: `${l.descricao} — ${formatarNumero(l.quantidade)} ${l.unidade}${
-            l.unidadesPorCaixa !== null ? ` (${formatarNumero(l.unidadesPorCaixa)} un./cx)` : ""
-          } x R$ ${l.valorUnitario.toFixed(2).replace(".", ",")}${sufixoNota}`,
-          categoriaId: l.categoriaId,
-          valor: l.valorTotal,
-        })),
-        {
-          competencia: dataNota.slice(0, 7),
-          dataVencimento: null,
-          dataPagamento: null,
-          formaPagamento: null,
-          status: "pendente",
-          origem: "ocr_nota",
-        },
-      );
-      if (resultado.status === "erro") {
-        setErro(resultado.mensagem);
-        return;
+      try {
+        const sufixoNota = numeroNota ? ` — NF ${numeroNota}` : "";
+        const resultado = await criarDespesasEmLote(
+          selecionadas.map((l) => ({
+            descricao: `${l.descricao} — ${formatarNumero(l.quantidade)} ${l.unidade}${
+              l.unidadesPorCaixa !== null ? ` (${formatarNumero(l.unidadesPorCaixa)} un./cx)` : ""
+            } x R$ ${l.valorUnitario.toFixed(2).replace(".", ",")}${sufixoNota}`,
+            categoriaId: l.categoriaId,
+            valor: l.valorTotal,
+          })),
+          {
+            competencia: dataNota.slice(0, 7),
+            dataVencimento: null,
+            dataPagamento: null,
+            formaPagamento: null,
+            status: "pendente",
+            origem: "ocr_nota",
+          },
+        );
+        if (resultado.status === "erro") {
+          setErro(resultado.mensagem);
+          return;
+        }
+        onSalvo();
+      } catch (err) {
+        setErro(err instanceof Error ? err.message : "Erro ao salvar as despesas.");
       }
-      onSalvo();
     });
   }
 

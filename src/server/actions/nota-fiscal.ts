@@ -24,14 +24,31 @@ export interface DadosExtraidosNotaFiscal {
   itens: ItemNotaFiscal[];
 }
 
-// Códigos de unidade como "CX5", "PC1", "UN1" trazem o multiplicador de
-// pacotes/unidades embutido no próprio código (letras + número final). Isso é
-// texto literal da nota, então extrair por regex é bem mais confiável do que
-// pedir para o modelo "calcular" esse número à parte (ele já confundiu com a
-// quantidade pedida em testes reais).
-function extrairMultiplicadorDoCodigoUnidade(unidade: string): number | null {
-  const match = unidade.trim().match(/^[A-Za-zÀ-ÿ]+(\d+)$/);
-  return match ? Number(match[1]) : null;
+// Códigos de unidade como "CX5", "PC1", "UN1", "KG1" trazem o multiplicador
+// (quantas unidades elementares por caixa/pacote) embutido no próprio código:
+// letras + número final. É texto literal da nota, então extrair por regex é
+// bem mais confiável do que pedir para o modelo "copiar" esse número à parte
+// (ele já confundiu com a quantidade pedida em testes reais). Quando o
+// prefixo é KG, a própria quantidade já É o peso total em kg — não há
+// pacote/caixa nem peso unitário para multiplicar.
+function interpretarCodigoUnidade(unidade: string): { multiplicador: number | null; ehQuilo: boolean } {
+  const limpo = unidade.trim().toUpperCase().replace(/\s+/g, "");
+  const match = limpo.match(/^([A-ZÀ-ÿ]+)(\d+)$/);
+  if (!match) return { multiplicador: null, ehQuilo: false };
+  const [, prefixo, numero] = match;
+  return { multiplicador: Number(numero), ehQuilo: prefixo === "KG" };
+}
+
+// Muitas descrições já trazem o peso por extenso (ex: "5X2,5KG" = 5 pacotes
+// de 2,5kg cada; "BANHA ANIMAL AURORA 1KG" = 1kg). Prioriza esse texto sobre
+// o campo livre pesoKgUnitario da IA, por ser um trecho maior e mais fácil de
+// ler certo do que a coluna estreita de unidade/quantidade.
+function extrairPesoDaDescricao(descricao: string): number | null {
+  const comMultiplicador = descricao.match(/\d+\s*[xX]\s*(\d+(?:[,.]\d+)?)\s*KG\b/i);
+  if (comMultiplicador) return Number(comMultiplicador[1].replace(",", "."));
+  const somentePeso = descricao.match(/(\d+(?:[,.]\d+)?)\s*KG\b/i);
+  if (somentePeso) return Number(somentePeso[1].replace(",", "."));
+  return null;
 }
 
 export type ResultadoLeituraNota =
@@ -80,25 +97,29 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
 
   const ItemSchema = z.object({
     descricao: z.string().describe("Nome do item/produto exatamente como está na nota (ex: Batata congelada, Nuggets, Refrigerante)"),
+    unidade: z
+      .string()
+      .describe(
+        "Código da coluna UNID, copiado EXATAMENTE caractere por caractere (ex: 'PC1', 'UN1', 'BD1', 'CX5', 'KG1'). Não interprete, não separe, não calcule nada — apenas transcreva o texto da célula.",
+      ),
     quantidade: z
       .number()
       .describe(
-        "Quantidade comprada deste item, exatamente como está na coluna de quantidade da nota. Para itens vendidos em caixa, é o número de CAIXAS pedidas — não multiplique por nada, apenas copie o número da nota.",
+        "Número da coluna QUANTIDADE da nota (não confundir com a coluna UNID, que fica ao lado). Use ponto decimal (ex: '6,3780' na nota vira 6.378). Não multiplique por nada — copie o número exatamente como está.",
       ),
-    unidade: z.string().describe("Unidade/tipo conforme a nota, ex: UN, PC, CX, KG, L, PCT — copie como aparece"),
     valorUnitario: z.number().describe("Valor unitário do item, em reais, apenas o número"),
     valorTotal: z.number().describe("Valor total da linha (quantidade x valor unitário), em reais"),
     pesoKgUnitario: z
       .number()
       .nullable()
       .describe(
-        "Peso em quilos de UM PACOTE/UNIDADE INDIVIDUAL do produto — NÃO da caixa inteira. Ex: se a nota diz 'pacote de 2,5kg' e vêm 5 pacotes por caixa, use 2.5 (não 12.5). Somente se a nota indicar peso explicitamente; null caso contrário.",
+        "Peso em quilos de UMA unidade/pacote individual do produto, se identificável na descrição (ex: descrição '...5X2,5KG' ou '...1KG' → 2.5 ou 1). NÃO multiplique pelo tamanho da caixa. Null se a descrição não indicar peso.",
       ),
     unidadesPorCaixa: z
       .number()
       .nullable()
       .describe(
-        "Quando a unidade for caixa (CX) e a nota indicar quantos pacotes/unidades individuais vêm dentro de cada caixa (ex: 'CX5' = 5 pacotes por caixa), copie esse número aqui, sem multiplicar por nada. Null se não for vendido em caixa ou a nota não indicar essa quebra.",
+        "Apenas um palpite de reserva — o sistema já calcula isso a partir do código da unidade. Se não tiver certeza, deixe null.",
       ),
     categoria: z.enum(nomesCategorias).describe("Categoria mais adequada para este item dentre as opções fornecidas"),
   });
@@ -115,7 +136,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
   let resposta;
   try {
     resposta = await client.messages.parse({
-      model: "claude-haiku-4-5",
+      model: "claude-sonnet-5",
       max_tokens: 8192,
       messages: [
         {
@@ -124,7 +145,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
             documentoParaAnalise,
             {
               type: "text",
-              text: "Esta é uma nota fiscal ou recibo de despesa de um restaurante (hamburgueria). Extraia também o número da nota fiscal/recibo (numeroNota), se houver.\n\nLeia o documento e extraia CADA item/produto da nota separadamente (ex: batata, nuggets, refrigerante), com quantidade, unidade/tipo, valor unitário, valor total, peso por unidade (se indicado) e categoria de cada um — não junte tudo em um único item.\n\nAtenção especial a itens vendidos em caixa (CX): a coluna de unidade/tipo costuma trazer códigos como 'CX5', 'PC1', 'UN1', onde o número final é o multiplicador de pacotes por caixa (CX5 = 5 pacotes por caixa; PC1/UN1 = 1, unidade avulsa). Copie o código de unidade exatamente como está (ex: 'CX5'), e a quantidade continua sendo o número de caixas pedidas — não multiplique nada você mesmo. Exemplo: nota de batata congelada com pacote de 2,5kg, código de unidade 'CX5' e 3 caixas pedidas, deve ser lido como: quantidade=3, unidade='CX5', pesoKgUnitario=2.5 (o peso do pacote, não da caixa).",
+              text: "Esta é uma nota fiscal (DANFE) de um restaurante (hamburgueria). Extraia também o número da nota fiscal (numeroNota), se houver.\n\nNa tabela 'DADOS DO PRODUTO/SERVIÇOS', leia CADA linha/item separadamente (ex: batata, bacon, queijo), extraindo com cuidado célula por célula — as colunas NCM/SH, CST, CFOP, UNID e QUANTIDADE ficam bem próximas umas das outras, não confunda os valores entre elas.\n\nA coluna UNID traz um código de letras + um número final (ex: 'PC1', 'UN1', 'BD1', 'CX5', 'CX2', 'CX6', 'KG1') — copie esse código EXATAMENTE como está impresso, caractere por caractere, no campo unidade. Não interprete nem separe o número — apenas copie o texto da célula.\n\nA coluna QUANTIDADE é um número separado (ex: '3,0000', '6,3780') — os números na nota usam vírgula como separador decimal (formato brasileiro); converta para ponto decimal nos campos numéricos (ex: '6,3780' vira 6.378).\n\nO peso do item, quando existir, normalmente já aparece por extenso na própria descrição do produto (ex: 'BATATA ... 5X2,5KG' ou 'BANHA ANIMAL AURORA 1KG') — extraia esse peso em pesoKgUnitario quando conseguir identificá-lo na descrição.",
             },
           ],
         },
@@ -145,15 +166,16 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
 
   const itens: ItemNotaFiscal[] = dados.itens.map((item) => {
     const categoriaEncontrada = categorias.find((c) => c.nome === item.categoria)!;
-    const multiplicadorDoCodigo = extrairMultiplicadorDoCodigoUnidade(item.unidade);
+    const { multiplicador, ehQuilo } = interpretarCodigoUnidade(item.unidade);
+    const pesoDaDescricao = extrairPesoDaDescricao(item.descricao);
     return {
       descricao: item.descricao,
       quantidade: item.quantidade,
       unidade: item.unidade,
       valorUnitario: item.valorUnitario,
       valorTotal: item.valorTotal,
-      pesoKgUnitario: item.pesoKgUnitario,
-      unidadesPorCaixa: multiplicadorDoCodigo ?? item.unidadesPorCaixa,
+      pesoKgUnitario: ehQuilo ? 1 : (pesoDaDescricao ?? item.pesoKgUnitario),
+      unidadesPorCaixa: ehQuilo ? 1 : (multiplicador ?? item.unidadesPorCaixa),
       categoriaId: categoriaEncontrada.id,
       categoriaNome: categoriaEncontrada.nome,
     };

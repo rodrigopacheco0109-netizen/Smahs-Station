@@ -136,7 +136,7 @@ export async function lerNotaFiscal(formData: FormData): Promise<ResultadoLeitur
   let resposta;
   try {
     resposta = await client.messages.parse({
-      model: "claude-sonnet-5",
+      model: "claude-haiku-4-5",
       max_tokens: 8192,
       messages: [
         {

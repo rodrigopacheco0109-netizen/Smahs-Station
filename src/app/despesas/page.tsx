@@ -4,6 +4,10 @@ import { formatBRL } from "@/lib/calculations";
 
 // Lê do banco a cada request — não pode ser pré-renderizada em build.
 export const dynamic = "force-dynamic";
+// A leitura de nota fiscal por IA pode levar mais que o padrão de 10s do
+// Vercel Hobby — o mesmo tipo de timeout já causou perda silenciosa de dados
+// na importação de vendas antes (a função era encerrada antes de commitar).
+export const maxDuration = 60;
 
 export default async function DespesasPage() {
   const [categorias, despesas] = await Promise.all([getCategoriasDespesa(), getDespesas()]);

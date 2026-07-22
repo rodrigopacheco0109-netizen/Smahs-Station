@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { criarDespesa, type ResultadoDespesa } from "@/server/actions/despesas";
-import type { CategoriaDespesa } from "@/server/actions/despesas";
+import type { CategoriaDespesa, LojaParaRateio } from "@/server/actions/despesas";
 
 async function acao(_anterior: ResultadoDespesa | null, formData: FormData): Promise<ResultadoDespesa> {
   try {
@@ -12,13 +12,13 @@ async function acao(_anterior: ResultadoDespesa | null, formData: FormData): Pro
   }
 }
 
-export function DespesaForm({ categorias }: { categorias: CategoriaDespesa[] }) {
+export function DespesaForm({ categorias, lojas }: { categorias: CategoriaDespesa[]; lojas: LojaParaRateio[] }) {
   const [resultado, formAction, isPending] = useActionState<ResultadoDespesa | null, FormData>(acao, null);
 
   return (
     <div className="rounded-xl border border-neutral-200 bg-white p-5">
       <p className="text-sm font-medium text-neutral-900 mb-4">Lançar despesa</p>
-      <form action={formAction} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <form id="form-despesa" action={formAction} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-2">
           <label htmlFor="descricao" className="text-xs font-medium text-neutral-500">
             Descrição
@@ -130,16 +130,45 @@ export function DespesaForm({ categorias }: { categorias: CategoriaDespesa[] }) 
           </select>
         </div>
 
-        <div className="flex items-end">
-          <button
-            type="submit"
-            disabled={isPending}
-            className="w-full rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-          >
-            {isPending ? "Salvando…" : "Lançar despesa"}
-          </button>
-        </div>
       </form>
+
+      {lojas.length > 0 && (
+        <div className="mt-4 rounded-lg border border-dashed border-neutral-200 p-3">
+          <p className="text-xs font-medium text-neutral-500 mb-2">
+            Dividir entre lojas (opcional — deixe em branco para manter centralizada)
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {lojas.map((loja) => (
+              <div key={loja.id} className="flex flex-col gap-1">
+                <label htmlFor={`rateio_${loja.id}`} className="text-xs text-neutral-500">
+                  {loja.nome} (%)
+                </label>
+                <input
+                  id={`rateio_${loja.id}`}
+                  name={`rateio_${loja.id}`}
+                  form="form-despesa"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  className="rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4">
+        <button
+          type="submit"
+          form="form-despesa"
+          disabled={isPending}
+          className="w-full rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 sm:w-auto"
+        >
+          {isPending ? "Salvando…" : "Lançar despesa"}
+        </button>
+      </div>
 
       {resultado?.status === "erro" && (
         <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{resultado.mensagem}</p>

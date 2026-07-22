@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { DespesaForm } from "./despesa-form";
 import { NotaFiscalUpload } from "./nota-fiscal-upload";
 import { ItensNotaFiscalForm } from "./itens-nota-fiscal-form";
-import type { CategoriaDespesa } from "@/server/actions/despesas";
+import type { CategoriaDespesa, LojaParaRateio } from "@/server/actions/despesas";
 import type { DadosExtraidosNotaFiscal } from "@/server/actions/nota-fiscal";
 
-export function LancamentoDespesa({ categorias }: { categorias: CategoriaDespesa[] }) {
+export function LancamentoDespesa({ categorias, lojas }: { categorias: CategoriaDespesa[]; lojas: LojaParaRateio[] }) {
   const router = useRouter();
   const [dados, setDados] = useState<DadosExtraidosNotaFiscal | null>(null);
   const [sucesso, setSucesso] = useState(false);
@@ -46,7 +46,7 @@ export function LancamentoDespesa({ categorias }: { categorias: CategoriaDespesa
           }}
         />
       ) : (
-        <DespesaForm categorias={categorias} />
+        <DespesaForm categorias={categorias} lojas={lojas} />
       )}
     </div>
   );

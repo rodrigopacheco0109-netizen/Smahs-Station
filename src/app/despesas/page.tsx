@@ -1,4 +1,4 @@
-import { getCategoriasDespesa, getDespesas } from "@/server/actions/despesas";
+import { getCategoriasDespesa, getDespesas, getLojasParaRateio } from "@/server/actions/despesas";
 import { LancamentoDespesa } from "@/components/lancamento-despesa";
 import { formatBRL } from "@/lib/calculations";
 
@@ -10,18 +10,19 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export default async function DespesasPage() {
-  const [categorias, despesas] = await Promise.all([getCategoriasDespesa(), getDespesas()]);
+  const [categorias, despesas, lojas] = await Promise.all([getCategoriasDespesa(), getDespesas(), getLojasParaRateio()]);
 
   return (
     <div className="space-y-8">
       <div>
         <h1 className="text-xl font-semibold text-neutral-900">Despesas</h1>
         <p className="text-sm text-neutral-500">
-          Lançamento único, sem vincular loja — a atribuição por loja vem do controle de estoque/transferências
+          Lançamento centralizado, com divisão opcional por loja (ex: aluguel, luz, funcionários) — compras via nota
+          fiscal ficam sem divisão por enquanto
         </p>
       </div>
 
-      <LancamentoDespesa categorias={categorias} />
+      <LancamentoDespesa categorias={categorias} lojas={lojas} />
 
       <div>
         <p className="text-sm font-medium text-neutral-900 mb-3">Despesas lançadas</p>

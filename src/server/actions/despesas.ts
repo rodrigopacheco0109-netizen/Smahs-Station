@@ -3,7 +3,7 @@
 import { eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { expenseCategories, expenses } from "@/server/db/schema";
+import { expenseAllocations, expenseCategories, expenses, stores } from "@/server/db/schema";
 
 export interface CategoriaDespesa {
   id: string;
@@ -14,6 +14,16 @@ export interface CategoriaDespesa {
 export async function getCategoriasDespesa(): Promise<CategoriaDespesa[]> {
   if (!db) throw new Error("DATABASE_URL não configurada");
   return db.select({ id: expenseCategories.id, nome: expenseCategories.nome, tipoDre: expenseCategories.tipoDre }).from(expenseCategories).orderBy(expenseCategories.nome);
+}
+
+export interface LojaParaRateio {
+  id: string;
+  nome: string;
+}
+
+export async function getLojasParaRateio(): Promise<LojaParaRateio[]> {
+  if (!db) throw new Error("DATABASE_URL não configurada");
+  return db.select({ id: stores.id, nome: stores.nome }).from(stores).where(eq(stores.ativo, true)).orderBy(stores.nome);
 }
 
 export interface Despesa {
@@ -74,17 +84,47 @@ export async function criarDespesa(formData: FormData): Promise<ResultadoDespesa
     return { status: "erro", mensagem: "Valor inválido." };
   }
 
-  await db.insert(expenses).values({
-    descricao,
-    categoriaId,
-    competencia: new Date(`${competenciaStr}-01T00:00:00`),
-    dataVencimento: vencimentoStr ? new Date(`${vencimentoStr}T00:00:00`) : null,
-    dataPagamento: pagamentoStr ? new Date(`${pagamentoStr}T00:00:00`) : null,
-    valor: valor.toString(),
-    formaPagamento: formaPagamento || null,
-    status,
-    origem,
-  });
+  const rateio: { storeId: string; percentual: number }[] = [];
+  for (const [chave, valorCampo] of formData.entries()) {
+    if (!chave.startsWith("rateio_")) continue;
+    const percentual = Number(String(valorCampo).replace(",", "."));
+    if (percentual > 0) {
+      rateio.push({ storeId: chave.replace("rateio_", ""), percentual });
+    }
+  }
+  if (rateio.length > 0) {
+    const somaPercentual = rateio.reduce((soma, r) => soma + r.percentual, 0);
+    if (Math.abs(somaPercentual - 100) > 0.5) {
+      return { status: "erro", mensagem: `O rateio entre lojas deve somar 100% (está somando ${somaPercentual}%).` };
+    }
+  }
+
+  const [despesaInserida] = await db
+    .insert(expenses)
+    .values({
+      descricao,
+      categoriaId,
+      competencia: new Date(`${competenciaStr}-01T00:00:00`),
+      dataVencimento: vencimentoStr ? new Date(`${vencimentoStr}T00:00:00`) : null,
+      dataPagamento: pagamentoStr ? new Date(`${pagamentoStr}T00:00:00`) : null,
+      valor: valor.toString(),
+      formaPagamento: formaPagamento || null,
+      status,
+      origem,
+    })
+    .returning({ id: expenses.id });
+
+  if (rateio.length > 0) {
+    await db.insert(expenseAllocations).values(
+      rateio.map((r) => ({
+        expenseId: despesaInserida.id,
+        storeId: r.storeId,
+        percentual: r.percentual.toString(),
+        valor: ((valor * r.percentual) / 100).toString(),
+        criterioRateio: "percentual_fixo",
+      })),
+    );
+  }
 
   return { status: "ok" };
 }
